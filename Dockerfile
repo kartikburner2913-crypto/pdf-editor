@@ -20,9 +20,9 @@ COPY --chown=user . .
 # -- Ensure the data/sessions directory exists (writable in the container) -----
 RUN mkdir -p /app/data/sessions
 
-# -- Hugging Face Spaces exposes port 7860; Railway and Render inject dynamic $PORT
+# -- Hugging Face Spaces exposes port 7860; Railway, Render, etc. set $PORT
 ENV PORT=7860
 EXPOSE 7860
 
 # -- Start the FastAPI server --------------------------------------------------
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["python", "run.py"]
