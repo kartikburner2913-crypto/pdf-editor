@@ -192,6 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCommandPalette();
   setupKeyboardShortcuts();
   setupAdvancedFeatures();
+  setupPdfCompressionFeature();
 });
 
 // Theme Toggle
@@ -4264,20 +4265,55 @@ function setupToolActions() {
   });
 
   // 16. Optimize & Metadata
-  btnCompressPdf.addEventListener("click", async () => {
-    setLoading(true, "Compressing PDF streams...");
-    try {
-      const res = await fetch(`/api/document/${state.docId}/compress`, { method: "POST" });
-      if (!res.ok) throw new Error("Compression failed");
-      showToast("PDF compressed and optimized!", "success");
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
-    } catch (err) {
-      showToast(err.message, "error");
-    } finally {
-      setLoading(false);
-    }
-  });
+  const btnQuickCompress = document.getElementById("btnQuickCompress");
+  if (btnQuickCompress) {
+    btnQuickCompress.addEventListener("click", async () => {
+      if (!state.docId) return showToast("No document loaded", "error");
+      setLoading(true, "Compressing PDF streams...");
+      try {
+        const res = await fetch(`/api/document/${state.docId}/compress`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "lossy", preset: "recommended" })
+        });
+        if (!res.ok) throw new Error("Compression failed");
+        const data = await res.json();
+        showToast(data.message || "PDF compressed and optimized!", "success");
+        updateUndoRedoButtons(true, false);
+        await loadPage(state.currentPage);
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    });
+  }
+
+  const btnOpenAdvancedCompress = document.getElementById("btnOpenAdvancedCompress");
+  if (btnOpenAdvancedCompress) {
+    btnOpenAdvancedCompress.addEventListener("click", () => {
+      document.querySelector('[data-tab="tab-compress"]')?.click();
+    });
+  }
+
+  if (btnCompressPdf) {
+    btnCompressPdf.addEventListener("click", async () => {
+      if (!state.docId) return showToast("No document loaded", "error");
+      setLoading(true, "Compressing PDF streams...");
+      try {
+        const res = await fetch(`/api/document/${state.docId}/compress`, { method: "POST" });
+        if (!res.ok) throw new Error("Compression failed");
+        const data = await res.json();
+        showToast(data.message || "PDF compressed and optimized!", "success");
+        updateUndoRedoButtons(true, false);
+        await loadPage(state.currentPage);
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    });
+  }
 
   btnSaveMetadata.addEventListener("click", async () => {
     const payload = {
@@ -5247,7 +5283,7 @@ const COMMANDS = [
   { name: "Place Sticky Note", category: "Tools", action: () => { document.querySelector('[data-tab="tab-annotate"]').click(); btnStartStickyNotePlacement.click(); } },
   { name: "Extract Full Document Text", category: "Tools", action: () => btnPreviewText.click() },
   { name: "Extract Embedded Images", category: "Tools", action: () => btnExtractImages.click() },
-  { name: "Compress & Optimize PDF", category: "Tools", action: () => btnCompressPdf.click() },
+  { name: "Compress & Optimize PDF", category: "Tools", action: () => document.querySelector('[data-tab="tab-compress"]').click() },
   { name: "Security & Compliance Audit", category: "Tools", action: () => document.querySelector('[data-tab="tab-optimize"]').click() },
   { name: "Download Edited PDF", category: "File", action: () => btnDownload.click() },
   { name: "Toggle Dark / Light Mode", category: "Theme", action: () => btnThemeToggle.click() }
@@ -6654,4 +6690,347 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+// ==========================================================================
+// Professional PDF Compression Feature Controller
+// ==========================================================================
+
+function setupPdfCompressionFeature() {
+  const btnModeLossy = document.getElementById("btnModeLossy");
+  const btnModeLossless = document.getElementById("btnModeLossless");
+  const lossyOptionsContainer = document.getElementById("lossyOptionsContainer");
+  const losslessInfoBox = document.getElementById("losslessInfoBox");
+  const presetCards = document.querySelectorAll("#tab-compress .preset-card");
+  const customSettingsPanel = document.getElementById("customCompressionSettings");
+
+  const qualitySlider = document.getElementById("compressImageQuality");
+  const qualityValSpan = document.getElementById("compressQualityValue");
+  const dpiSelect = document.getElementById("compressMaxDpi");
+  const grayscaleCheckbox = document.getElementById("compressGrayscale");
+  const removeMetadataCheckbox = document.getElementById("compressRemoveMetadata");
+
+  const dropZone = document.getElementById("compressDropZone");
+  const fileInput = document.getElementById("compressFileInput");
+  const browseLink = document.getElementById("compressBrowseLink");
+  const selectedFileName = document.getElementById("compressSelectedFileName");
+  const btnExecute = document.getElementById("btnExecuteCompress");
+  const buttonLabel = document.getElementById("compressButtonLabel");
+
+  const progressContainer = document.getElementById("compressProgressContainer");
+  const progressStatus = document.getElementById("compressProgressStatus");
+  const progressPct = document.getElementById("compressProgressPct");
+  const progressBar = document.getElementById("compressProgressBar");
+
+  const resultsCard = document.getElementById("compressResultsCard");
+  const savingsBadge = document.getElementById("compressSavingsBadge");
+  const metricOrig = document.getElementById("metricOriginalSize");
+  const metricComp = document.getElementById("metricCompressedSize");
+  const metricSaved = document.getElementById("metricBytesSaved");
+  const metricImages = document.getElementById("metricImagesOptimized");
+  const btnDownloadResult = document.getElementById("btnDownloadCompressedPdf");
+  const btnOpenInEditor = document.getElementById("btnOpenInEditor");
+
+  const errorBanner = document.getElementById("compressErrorBanner");
+  const errorMessage = document.getElementById("compressErrorMessage");
+
+  let compressState = {
+    mode: "lossy",
+    preset: "recommended",
+    quality: 75,
+    maxDpi: 150,
+    grayscale: false,
+    removeMetadata: false,
+    uploadedFile: null,
+    lastResult: null
+  };
+
+  function formatBytes(bytes, decimals = 1) {
+    if (!bytes || bytes <= 0) return "0 B";
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  }
+
+  function hideError() {
+    if (errorBanner) errorBanner.style.display = "none";
+  }
+
+  function showError(msg) {
+    if (errorBanner && errorMessage) {
+      errorMessage.textContent = msg;
+      errorBanner.style.display = "flex";
+    }
+    showToast(msg, "error");
+  }
+
+  // Mode Switching
+  if (btnModeLossy && btnModeLossless) {
+    btnModeLossy.addEventListener("click", () => {
+      compressState.mode = "lossy";
+      btnModeLossy.classList.add("active");
+      btnModeLossless.classList.remove("active");
+      if (lossyOptionsContainer) lossyOptionsContainer.style.display = "block";
+      if (losslessInfoBox) losslessInfoBox.style.display = "none";
+    });
+
+    btnModeLossless.addEventListener("click", () => {
+      compressState.mode = "lossless";
+      btnModeLossless.classList.add("active");
+      btnModeLossy.classList.remove("active");
+      if (lossyOptionsContainer) lossyOptionsContainer.style.display = "none";
+      if (losslessInfoBox) losslessInfoBox.style.display = "flex";
+    });
+  }
+
+  // Preset Selection
+  presetCards.forEach(card => {
+    card.addEventListener("click", () => {
+      presetCards.forEach(c => c.classList.remove("active"));
+      card.classList.add("active");
+      const preset = card.getAttribute("data-preset");
+      compressState.preset = preset;
+
+      if (preset === "custom") {
+        if (customSettingsPanel) customSettingsPanel.style.display = "flex";
+      } else {
+        if (customSettingsPanel) customSettingsPanel.style.display = "none";
+        if (preset === "extreme") {
+          compressState.quality = 40;
+          compressState.maxDpi = 96;
+        } else if (preset === "recommended") {
+          compressState.quality = 70;
+          compressState.maxDpi = 150;
+        } else if (preset === "high") {
+          compressState.quality = 85;
+          compressState.maxDpi = 220;
+        }
+      }
+    });
+  });
+
+  // Slider and Select bindings
+  if (qualitySlider && qualityValSpan) {
+    qualitySlider.addEventListener("input", (e) => {
+      const val = parseInt(e.target.value, 10);
+      compressState.quality = val;
+      qualityValSpan.textContent = `${val}%`;
+    });
+  }
+
+  if (dpiSelect) {
+    dpiSelect.addEventListener("change", (e) => {
+      const val = parseInt(e.target.value, 10);
+      compressState.maxDpi = val;
+    });
+  }
+
+  if (grayscaleCheckbox) {
+    grayscaleCheckbox.addEventListener("change", (e) => {
+      compressState.grayscale = e.target.checked;
+    });
+  }
+
+  if (removeMetadataCheckbox) {
+    removeMetadataCheckbox.addEventListener("change", (e) => {
+      compressState.removeMetadata = e.target.checked;
+    });
+  }
+
+  // File dropzone
+  if (browseLink && fileInput) {
+    browseLink.addEventListener("click", (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+  }
+
+  if (dropZone && fileInput) {
+    dropZone.addEventListener("click", () => fileInput.click());
+
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("dragover");
+    });
+
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        handleFileSelect(files[0]);
+      }
+    });
+
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        handleFileSelect(e.target.files[0]);
+      }
+    });
+  }
+
+  function handleFileSelect(file) {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      showToast("Please select a PDF file.", "error");
+      return;
+    }
+    compressState.uploadedFile = file;
+    if (selectedFileName) {
+      selectedFileName.textContent = `Selected: ${file.name} (${formatBytes(file.size)})`;
+    }
+    if (buttonLabel) {
+      buttonLabel.textContent = "Compress Uploaded PDF";
+    }
+    hideError();
+  }
+
+  // Execution
+  if (btnExecute) {
+    btnExecute.addEventListener("click", async () => {
+      hideError();
+      if (!compressState.uploadedFile && !state.docId) {
+        showError("Please upload a PDF file or open a document in the editor first.");
+        return;
+      }
+
+      if (progressContainer) progressContainer.style.display = "block";
+      if (resultsCard) resultsCard.style.display = "none";
+      if (progressBar) progressBar.style.width = "20%";
+      if (progressPct) progressPct.textContent = "20%";
+      if (progressStatus) progressStatus.textContent = "Analyzing document streams...";
+
+      const progressTimer1 = setTimeout(() => {
+        if (progressBar) progressBar.style.width = "50%";
+        if (progressPct) progressPct.textContent = "50%";
+        if (progressStatus) progressStatus.textContent = compressState.mode === "lossy" ? "Optimizing & downsampling images..." : "Deflating stream tables...";
+      }, 400);
+
+      const progressTimer2 = setTimeout(() => {
+        if (progressBar) progressBar.style.width = "85%";
+        if (progressPct) progressPct.textContent = "85%";
+        if (progressStatus) progressStatus.textContent = "Purging dead xrefs & writing optimized PDF...";
+      }, 900);
+
+      try {
+        let res, data;
+        if (compressState.uploadedFile) {
+          const formData = new FormData();
+          formData.append("file", compressState.uploadedFile);
+          formData.append("mode", compressState.mode);
+          formData.append("preset", compressState.preset);
+          formData.append("image_quality", compressState.quality);
+          formData.append("max_dpi", compressState.maxDpi);
+          formData.append("grayscale", compressState.grayscale);
+          formData.append("remove_metadata", compressState.removeMetadata);
+
+          res = await fetch("/api/compress-file", {
+            method: "POST",
+            body: formData
+          });
+          data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Compression failed");
+        } else {
+          res = await fetch(`/api/document/${state.docId}/compress`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mode: compressState.mode,
+              preset: compressState.preset,
+              image_quality: compressState.quality,
+              max_dpi: compressState.maxDpi,
+              grayscale: compressState.grayscale,
+              remove_metadata: compressState.removeMetadata
+            })
+          });
+          data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Compression failed");
+          updateUndoRedoButtons(true, false);
+          await loadPage(state.currentPage);
+        }
+
+        clearTimeout(progressTimer1);
+        clearTimeout(progressTimer2);
+
+        if (progressBar) progressBar.style.width = "100%";
+        if (progressPct) progressPct.textContent = "100%";
+        if (progressStatus) progressStatus.textContent = "Compression complete!";
+
+        compressState.lastResult = data;
+
+        // Display results
+        setTimeout(() => {
+          if (progressContainer) progressContainer.style.display = "none";
+          if (resultsCard) resultsCard.style.display = "block";
+
+          const savings = data.savings_percent || 0;
+          if (savingsBadge) {
+            savingsBadge.textContent = `-${savings}%`;
+          }
+          if (metricOrig) metricOrig.textContent = formatBytes(data.original_size);
+          if (metricComp) metricComp.textContent = formatBytes(data.compressed_size || data.new_size);
+          if (metricSaved) metricSaved.textContent = formatBytes(data.bytes_saved || Math.max(0, data.original_size - (data.compressed_size || data.new_size)));
+          if (metricImages) metricImages.textContent = data.images_optimized !== undefined ? data.images_optimized : "0";
+
+          if (btnOpenInEditor) {
+            if (compressState.uploadedFile && data.doc_id) {
+              btnOpenInEditor.style.display = "block";
+              btnOpenInEditor.onclick = async () => {
+                state.docId = data.doc_id;
+                state.filename = data.filename || "compressed.pdf";
+                state.currentPage = 1;
+                state.totalPages = data.page_count || 1;
+                totalPagesSpan.textContent = state.totalPages;
+                pageNumberInput.max = state.totalPages;
+                pageNumberInput.value = 1;
+                activeFilename.textContent = state.filename;
+                uploadSection.style.display = "none";
+                workspaceSection.style.display = "flex";
+                topNavActions.style.display = "flex";
+                await loadPage(1);
+                await renderThumbnails();
+                showToast("Compressed document opened in editor workspace!", "success");
+              };
+            } else {
+              btnOpenInEditor.style.display = "none";
+            }
+          }
+
+          showToast("PDF compressed successfully!", "success");
+        }, 300);
+
+      } catch (err) {
+        clearTimeout(progressTimer1);
+        clearTimeout(progressTimer2);
+        if (progressContainer) progressContainer.style.display = "none";
+        showError(err.message || "An error occurred during compression.");
+      }
+    });
+  }
+
+  // Download Button Handler
+  if (btnDownloadResult) {
+    btnDownloadResult.addEventListener("click", () => {
+      const res = compressState.lastResult;
+      if (!res) return showToast("No compressed document available to download.", "error");
+
+      const targetDocId = res.doc_id || state.docId;
+      if (!targetDocId) return showToast("Document ID not found.", "error");
+
+      const downloadUrl = `/api/document/${targetDocId}/download`;
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = res.filename ? `compressed_${res.filename}` : "compressed_document.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast("Download started!", "success");
+    });
+  }
+}
+
 

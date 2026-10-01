@@ -9,6 +9,7 @@ import os
 import zipfile
 from typing import List, Dict, Any, Optional, Tuple, Union
 import pymupdf as fitz
+from PIL import Image
 
 class PDFEngine:
     """Core PDF manipulation engine utilizing PyMuPDF."""
@@ -1499,22 +1500,181 @@ class PDFEngine:
             doc.close()
 
     @staticmethod
-    def compress_and_optimize(pdf_bytes: bytes) -> bytes:
-        """Compress and optimize PDF file streams and clean unused objects."""
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    def compress_pdf_advanced(
+        pdf_bytes: bytes,
+        mode: str = "lossy",
+        preset: str = "recommended",
+        image_quality: Optional[int] = 75,
+        max_dpi: Optional[int] = 150,
+        grayscale: bool = False,
+        remove_metadata: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Advanced professional PDF compression engine.
+        Supports:
+          - Lossless: Deflates uncompressed streams, cleans unused objects, removes dead xrefs.
+          - Lossy: Downsamples high-resolution embedded images according to display DPI,
+                   re-encodes with configurable quality/compression, optional grayscale conversion.
+        Never mutates the input bytes. Gracefully handles corrupted, encrypted, and invalid PDFs.
+        """
+        if not pdf_bytes or len(pdf_bytes) == 0:
+            raise ValueError("The provided PDF file is empty.")
+
+        # Check basic PDF signature
+        if not (pdf_bytes.startswith(b"%PDF") or b"%PDF" in pdf_bytes[:2048]):
+            raise ValueError("The file provided does not appear to be a valid PDF document.")
+
         try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        except Exception as e:
+            raise ValueError(f"Unable to read PDF. The document may be corrupted or damaged: {str(e)}")
+
+        try:
+            if doc.is_encrypted:
+                raise ValueError("The PDF document is password-protected or encrypted. Please decrypt or unlock it before compressing.")
+
+            if len(doc) == 0:
+                raise ValueError("The PDF document contains no pages.")
+
+            orig_size = len(pdf_bytes)
+            norm_mode = (mode or "lossy").lower().strip()
+            norm_preset = (preset or "recommended").lower().strip()
+
+            # Resolve lossy parameters based on preset
+            if norm_preset == "extreme":
+                quality = 40
+                target_dpi = 96
+            elif norm_preset == "recommended":
+                quality = 70
+                target_dpi = 150
+            elif norm_preset == "high":
+                quality = 85
+                target_dpi = 220
+            elif norm_preset == "custom":
+                quality = max(10, min(100, int(image_quality if image_quality is not None else 75)))
+                target_dpi = max(50, min(600, int(max_dpi if max_dpi is not None else 150)))
+            else:
+                quality = max(10, min(100, int(image_quality if image_quality is not None else 75)))
+                target_dpi = max(50, min(600, int(max_dpi if max_dpi is not None else 150)))
+
+            images_optimized = 0
+
+            # If Lossy mode, process embedded raster images
+            if norm_mode == "lossy":
+                processed_xrefs = set()
+                for page_idx in range(len(doc)):
+                    page = doc[page_idx]
+                    try:
+                        images = page.get_images(full=True)
+                    except Exception:
+                        images = []
+
+                    for img_info in images:
+                        xref = img_info[0]
+                        if xref in processed_xrefs:
+                            continue
+                        processed_xrefs.add(xref)
+
+                        try:
+                            base_img = doc.extract_image(xref)
+                            if not base_img or "image" not in base_img:
+                                continue
+
+                            orig_img_bytes = base_img["image"]
+                            orig_w = base_img.get("width", 0)
+                            orig_h = base_img.get("height", 0)
+                            if orig_w <= 0 or orig_h <= 0:
+                                continue
+
+                            # Determine display dimensions on page to calculate target pixel size
+                            rects = page.get_image_rects(xref)
+                            if rects:
+                                max_w_pt = max(r.width for r in rects)
+                                max_h_pt = max(r.height for r in rects)
+                                disp_w_in = max(0.1, max_w_pt / 72.0)
+                                disp_h_in = max(0.1, max_h_pt / 72.0)
+                                max_allowed_w = max(1, int(disp_w_in * target_dpi))
+                                max_allowed_h = max(1, int(disp_h_in * target_dpi))
+                            else:
+                                max_allowed_w = max(1, int(8.5 * target_dpi))
+                                max_allowed_h = max(1, int(11.0 * target_dpi))
+
+                            pil_img = Image.open(io.BytesIO(orig_img_bytes))
+
+                            # Check if downsampling is appropriate
+                            scale_factor = min(max_allowed_w / float(orig_w), max_allowed_h / float(orig_h))
+                            needs_resize = scale_factor < 0.95
+
+                            if needs_resize:
+                                new_w = max(1, int(orig_w * scale_factor))
+                                new_h = max(1, int(orig_h * scale_factor))
+                                pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+                            # Optional Grayscale conversion
+                            if grayscale:
+                                pil_img = pil_img.convert("L")
+
+                            # Recompress image stream
+                            out_img_buf = io.BytesIO()
+                            if pil_img.mode in ("RGBA", "LA", "PA") and not grayscale:
+                                # Recompress PNG with max compression
+                                pil_img.save(out_img_buf, format="PNG", optimize=True)
+                            else:
+                                if pil_img.mode not in ("RGB", "L"):
+                                    pil_img = pil_img.convert("RGB")
+                                pil_img.save(out_img_buf, format="JPEG", quality=quality, optimize=True)
+
+                            new_img_bytes = out_img_buf.getvalue()
+                            # Only replace if recompressed stream is actually smaller than original
+                            if len(new_img_bytes) < len(orig_img_bytes):
+                                page.replace_image(xref, stream=new_img_bytes)
+                                images_optimized += 1
+                        except Exception:
+                            # If an individual image fails to re-encode, continue without failing doc
+                            continue
+
+            if remove_metadata:
+                try:
+                    doc.set_metadata({})
+                except Exception:
+                    pass
+
+            # Deflate streams and perform deep garbage collection
             output = io.BytesIO()
             doc.save(
                 output,
-                garbage=4,          # highest level of garbage collection
-                deflate=True,       # compress uncompressed streams
+                garbage=4,
+                deflate=True,
                 deflate_images=True,
                 deflate_fonts=True,
-                clean=True
+                clean=True,
+                linear=False
             )
-            return output.getvalue()
+            compressed_bytes = output.getvalue()
+            new_size = len(compressed_bytes)
+
+            bytes_saved = max(0, orig_size - new_size)
+            savings_pct = round(max(0.0, (1.0 - (new_size / orig_size)) * 100.0), 2) if orig_size > 0 else 0.0
+
+            return {
+                "original_size": orig_size,
+                "compressed_size": new_size,
+                "savings_percent": savings_pct,
+                "bytes_saved": bytes_saved,
+                "mode": norm_mode,
+                "preset": norm_preset if norm_mode == "lossy" else "lossless",
+                "images_optimized": images_optimized,
+                "page_count": len(doc),
+                "compressed_bytes": compressed_bytes
+            }
         finally:
             doc.close()
+
+    @staticmethod
+    def compress_and_optimize(pdf_bytes: bytes) -> bytes:
+        """Compress and optimize PDF file streams and clean unused objects (lossless)."""
+        result = PDFEngine.compress_pdf_advanced(pdf_bytes, mode="lossless")
+        return result["compressed_bytes"]
 
     @staticmethod
     def add_shape_annotations(

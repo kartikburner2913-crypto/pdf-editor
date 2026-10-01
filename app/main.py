@@ -303,6 +303,15 @@ class MetadataRequest(BaseModel):
     producer: Optional[str] = ""
 
 
+class CompressPDFRequest(BaseModel):
+    mode: Optional[str] = "lossy"  # "lossless" or "lossy"
+    preset: Optional[str] = "recommended"  # "extreme", "recommended", "high", "custom"
+    image_quality: Optional[int] = 75
+    max_dpi: Optional[int] = 150
+    grayscale: Optional[bool] = False
+    remove_metadata: Optional[bool] = False
+
+
 class InsertBlankPageRequest(BaseModel):
     at_page: int = 1
     width: float = 595.0
@@ -766,24 +775,158 @@ async def extract_images(doc_id: str):
 
 
 @app.post("/api/document/{doc_id}/compress")
-async def compress_pdf(doc_id: str):
-    """Compress and optimize PDF file streams."""
+async def compress_pdf(doc_id: str, req: Optional[CompressPDFRequest] = None):
+    """Compress and optimize PDF file streams and embedded raster images."""
     doc = get_doc(doc_id)
+    if req is None:
+        req = CompressPDFRequest()
     try:
-        original_size = len(doc["current_bytes"])
-        compressed = PDFEngine.compress_and_optimize(doc["current_bytes"])
-        new_size = len(compressed)
-        save_new_version(doc_id, compressed)
-        savings = max(0, round((1 - new_size / original_size) * 100, 1))
+        res = PDFEngine.compress_pdf_advanced(
+            doc["current_bytes"],
+            mode=req.mode,
+            preset=req.preset,
+            image_quality=req.image_quality,
+            max_dpi=req.max_dpi,
+            grayscale=req.grayscale or False,
+            remove_metadata=req.remove_metadata or False
+        )
+        save_new_version(doc_id, res["compressed_bytes"])
         return {
             "status": "success",
-            "message": f"Compressed! Size reduced from {original_size // 1024} KB to {new_size // 1024} KB ({savings}% savings).",
-            "original_size": original_size,
-            "new_size": new_size,
-            "savings_percent": savings
+            "message": f"Successfully compressed! Reduced from {res['original_size'] // 1024} KB to {res['compressed_size'] // 1024} KB ({res['savings_percent']}% reduction).",
+            "original_size": res["original_size"],
+            "new_size": res["compressed_size"],
+            "compressed_size": res["compressed_size"],
+            "savings_percent": res["savings_percent"],
+            "bytes_saved": res["bytes_saved"],
+            "mode": res["mode"],
+            "preset": res["preset"],
+            "images_optimized": res["images_optimized"],
+            "page_count": res.get("page_count", 1)
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error compressing PDF: {str(e)}")
+
+
+@app.post("/api/compress-file")
+async def compress_uploaded_file(
+    file: UploadFile = File(...),
+    mode: str = Form("lossy"),
+    preset: str = Form("recommended"),
+    image_quality: Optional[int] = Form(75),
+    max_dpi: Optional[int] = Form(150),
+    grayscale: Optional[bool] = Form(False),
+    remove_metadata: Optional[bool] = Form(False)
+):
+    """Upload any PDF, compress it with selected mode/quality, and return metrics + doc_id."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded PDF file is empty.")
+    if len(contents) > 250 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF exceeds maximum allowed file size of 250 MB.")
+
+    try:
+        res = PDFEngine.compress_pdf_advanced(
+            contents,
+            mode=mode,
+            preset=preset,
+            image_quality=image_quality,
+            max_dpi=max_dpi,
+            grayscale=bool(grayscale),
+            remove_metadata=bool(remove_metadata)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Compression failed: {str(e)}")
+
+    doc_id = uuid.uuid4().hex
+    prune_store()
+    
+    os.makedirs(os.path.join(DATA_DIR, doc_id), exist_ok=True)
+    save_doc_bytes(doc_id, 0, res["compressed_bytes"])
+    
+    DOC_STORE[doc_id] = {
+        "filename": file.filename,
+        "current_version": 0,
+        "max_version": 0,
+        "current_bytes": res["compressed_bytes"],
+        "updated_at": time.time()
+    }
+
+    return {
+        "status": "success",
+        "doc_id": doc_id,
+        "filename": file.filename,
+        "original_size": res["original_size"],
+        "compressed_size": res["compressed_size"],
+        "new_size": res["compressed_size"],
+        "savings_percent": res["savings_percent"],
+        "bytes_saved": res["bytes_saved"],
+        "mode": res["mode"],
+        "preset": res["preset"],
+        "images_optimized": res["images_optimized"],
+        "page_count": res.get("page_count", 1),
+        "download_url": f"/api/document/{doc_id}/download"
+    }
+
+
+@app.post("/api/compress-direct-download")
+async def compress_direct_download(
+    file: UploadFile = File(...),
+    mode: str = Form("lossy"),
+    preset: str = Form("recommended"),
+    image_quality: Optional[int] = Form(75),
+    max_dpi: Optional[int] = Form(150),
+    grayscale: Optional[bool] = Form(False),
+    remove_metadata: Optional[bool] = Form(False)
+):
+    """Compress an uploaded PDF and return the optimized PDF directly as a download."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded PDF file is empty.")
+
+    try:
+        res = PDFEngine.compress_pdf_advanced(
+            contents,
+            mode=mode,
+            preset=preset,
+            image_quality=image_quality,
+            max_dpi=max_dpi,
+            grayscale=bool(grayscale),
+            remove_metadata=bool(remove_metadata)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Compression failed: {str(e)}")
+
+    out_name = file.filename
+    if not out_name.lower().endswith(".pdf"):
+        out_name += ".pdf"
+    if not out_name.startswith("compressed_"):
+        out_name = f"compressed_{out_name}"
+
+    return StreamingResponse(
+        io.BytesIO(res["compressed_bytes"]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{out_name}"',
+            "X-Original-Size": str(res["original_size"]),
+            "X-Compressed-Size": str(res["compressed_size"]),
+            "X-Savings-Percent": str(res["savings_percent"]),
+            "X-Bytes-Saved": str(res["bytes_saved"]),
+            "X-Images-Optimized": str(res["images_optimized"])
+        }
+    )
 
 
 @app.post("/api/document/{doc_id}/protect")
