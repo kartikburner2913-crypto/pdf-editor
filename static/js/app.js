@@ -484,6 +484,7 @@ async function loadPage(pageNumber, _opts = {}) {
     await loadPageImages(pageNumber);
     await loadAnnotations(pageNumber);
     renderSearchHighlights();
+    renderPiiHighlights();
 
     // Immediately restore scroll position and reinforce in animation frame
     if (viewport) {
@@ -5681,33 +5682,260 @@ function setupTableExtraction() {
 }
 
 // --------------------------------------------------------------------------
-// 2. PII Scanner & Auto-Redaction
+// 2. PII Scanner & Auto-Redaction Suite
 // --------------------------------------------------------------------------
+
+function renderPiiHighlights() {
+  const overlay = document.getElementById("interactiveOverlay");
+  if (!overlay) return;
+  overlay.querySelectorAll(".pii-canvas-highlight").forEach(el => el.remove());
+  if (!state.piiMatches || state.piiMatches.length === 0) return;
+
+  const overlayRect = overlay.getBoundingClientRect();
+  if (!overlayRect.width || !overlayRect.height) return;
+  const scaleX = overlayRect.width / (state.pageWidthPt || 595);
+  const scaleY = overlayRect.height / (state.pageHeightPt || 842);
+
+  state.piiMatches.forEach((m, idx) => {
+    if (m.page !== state.currentPage) return;
+    if (!m.bbox || m.bbox.length !== 4) return;
+    const [x0, y0, x1, y1] = m.bbox;
+    const div = document.createElement("div");
+    div.className = "pii-canvas-highlight";
+    div.dataset.piiIdx = idx;
+    div.title = `${m.label || m.type}: ${m.text}`;
+    div.style.left = `${x0 * scaleX}px`;
+    div.style.top = `${y0 * scaleY}px`;
+    div.style.width = `${Math.max(10, (x1 - x0) * scaleX)}px`;
+    div.style.height = `${Math.max(10, (y1 - y0) * scaleY)}px`;
+
+    const tag = document.createElement("span");
+    tag.className = "pii-canvas-highlight-tag";
+    tag.textContent = m.type || "PII";
+    div.appendChild(tag);
+
+    div.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const row = document.querySelector(`.pii-match-row[data-idx="${idx}"]`);
+      if (row) {
+        document.querySelectorAll(".pii-match-row").forEach(r => r.classList.remove("active"));
+        row.classList.add("active");
+        row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+
+    overlay.appendChild(div);
+  });
+}
+
 function setupPiiScanner() {
   const btnScanPII = document.getElementById("btnScanPII");
   const piiResultsContainer = document.getElementById("piiResultsContainer");
   const piiResultsCount = document.getElementById("piiResultsCount");
   const piiMatchesList = document.getElementById("piiMatchesList");
   const btnSelectAllPII = document.getElementById("btnSelectAllPII");
+  const btnClearPIIResults = document.getElementById("btnClearPIIResults");
   const btnAutoRedactSelected = document.getElementById("btnAutoRedactSelected");
 
+  let customKeysList = [];
+  let customKeywordsList = [];
+
+  // Tag chip rendering helpers
+  function renderCustomKeyChips() {
+    const container = document.getElementById("customKeysTags");
+    if (!container) return;
+    container.innerHTML = "";
+    customKeysList.forEach((k, idx) => {
+      const chip = document.createElement("span");
+      chip.className = "tag-chip";
+      chip.innerHTML = `<span>${escapeHtml(k)}</span><button type="button" class="tag-chip-remove" data-idx="${idx}">&times;</button>`;
+      chip.querySelector(".tag-chip-remove").addEventListener("click", () => {
+        customKeysList.splice(idx, 1);
+        renderCustomKeyChips();
+      });
+      container.appendChild(chip);
+    });
+  }
+
+  function renderCustomKeywordChips() {
+    const container = document.getElementById("customKeywordsTags");
+    if (!container) return;
+    container.innerHTML = "";
+    customKeywordsList.forEach((kw, idx) => {
+      const chip = document.createElement("span");
+      chip.className = "tag-chip";
+      chip.innerHTML = `<span>${escapeHtml(kw)}</span><button type="button" class="tag-chip-remove" data-idx="${idx}">&times;</button>`;
+      chip.querySelector(".tag-chip-remove").addEventListener("click", () => {
+        customKeywordsList.splice(idx, 1);
+        renderCustomKeywordChips();
+      });
+      container.appendChild(chip);
+    });
+  }
+
+  // Key-Value Tag Input
+  const inputKey = document.getElementById("inputCustomKey");
+  const btnAddKey = document.getElementById("btnAddCustomKey");
+  function addKey() {
+    if (!inputKey) return;
+    const val = inputKey.value.trim();
+    if (val && !customKeysList.includes(val)) {
+      customKeysList.push(val);
+      renderCustomKeyChips();
+      inputKey.value = "";
+    }
+  }
+  if (btnAddKey) btnAddKey.addEventListener("click", addKey);
+  if (inputKey) {
+    inputKey.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === ",") {
+        e.preventDefault();
+        addKey();
+      }
+    });
+  }
+
+  // Custom Keyword Tag Input
+  const inputKw = document.getElementById("inputCustomKeyword");
+  const btnAddKw = document.getElementById("btnAddCustomKeyword");
+  function addKw() {
+    if (!inputKw) return;
+    const val = inputKw.value.trim();
+    if (val && !customKeywordsList.includes(val)) {
+      customKeywordsList.push(val);
+      renderCustomKeywordChips();
+      inputKw.value = "";
+    }
+  }
+  if (btnAddKw) btnAddKw.addEventListener("click", addKw);
+  if (inputKw) {
+    inputKw.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === ",") {
+        e.preventDefault();
+        addKw();
+      }
+    });
+  }
+
+  // Profile Presets
+  document.querySelectorAll(".btn-profile-pill").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".btn-profile-pill").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const profile = btn.dataset.profile;
+
+      const setCheck = (id, checked) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = checked;
+      };
+
+      if (profile === "all") {
+        setCheck("piiOptEmail", true);
+        setCheck("piiOptSSN", true);
+        setCheck("piiOptPhone", true);
+        setCheck("piiOptCreditCard", true);
+        setCheck("piiOptIBAN", false);
+        setCheck("piiOptDate", true);
+        setCheck("piiOptIP", true);
+        setCheck("piiOptSecrets", false);
+        setCheck("piiOptPassport", false);
+      } else if (profile === "financial") {
+        setCheck("piiOptEmail", false);
+        setCheck("piiOptSSN", false);
+        setCheck("piiOptPhone", false);
+        setCheck("piiOptCreditCard", true);
+        setCheck("piiOptIBAN", true);
+        setCheck("piiOptDate", false);
+        setCheck("piiOptIP", false);
+        setCheck("piiOptSecrets", false);
+        setCheck("piiOptPassport", false);
+        ["Account Number", "Routing Number", "Total Due", "Balance", "Cardholder"].forEach(k => {
+          if (!customKeysList.includes(k)) customKeysList.push(k);
+        });
+        renderCustomKeyChips();
+      } else if (profile === "healthcare") {
+        setCheck("piiOptEmail", false);
+        setCheck("piiOptSSN", true);
+        setCheck("piiOptPhone", true);
+        setCheck("piiOptCreditCard", false);
+        setCheck("piiOptIBAN", false);
+        setCheck("piiOptDate", true);
+        setCheck("piiOptIP", false);
+        setCheck("piiOptSecrets", false);
+        setCheck("piiOptPassport", false);
+        ["Patient Name", "MRN", "Diagnosis", "Insurance Policy", "Doctor", "Date of Birth"].forEach(k => {
+          if (!customKeysList.includes(k)) customKeysList.push(k);
+        });
+        renderCustomKeyChips();
+      } else if (profile === "hr") {
+        setCheck("piiOptEmail", true);
+        setCheck("piiOptSSN", true);
+        setCheck("piiOptPhone", true);
+        setCheck("piiOptCreditCard", false);
+        setCheck("piiOptIBAN", false);
+        setCheck("piiOptDate", true);
+        setCheck("piiOptIP", false);
+        setCheck("piiOptSecrets", false);
+        setCheck("piiOptPassport", false);
+        ["Employee ID", "Salary", "Gross Pay", "Full Name", "Home Address", "Bank Account"].forEach(k => {
+          if (!customKeysList.includes(k)) customKeysList.push(k);
+        });
+        renderCustomKeyChips();
+      } else if (profile === "clear") {
+        ["piiOptEmail", "piiOptSSN", "piiOptPhone", "piiOptCreditCard", "piiOptIBAN", "piiOptDate", "piiOptIP", "piiOptSecrets", "piiOptPassport"].forEach(id => setCheck(id, false));
+        customKeysList = [];
+        customKeywordsList = [];
+        renderCustomKeyChips();
+        renderCustomKeywordChips();
+        const cr = document.getElementById("piiCustomRegex");
+        if (cr) cr.value = "";
+      }
+    });
+  });
+
+  // Fill Style Selection
+  const fillStyleSelect = document.getElementById("piiFillStyle");
+  const fillColorPicker = document.getElementById("piiFillColor");
+  if (fillStyleSelect && fillColorPicker) {
+    fillStyleSelect.addEventListener("change", () => {
+      fillColorPicker.style.display = fillStyleSelect.value === "custom" ? "block" : "none";
+    });
+  }
+
+  // Clear / Dismiss Results
+  if (btnClearPIIResults) {
+    btnClearPIIResults.addEventListener("click", () => {
+      state.piiMatches = [];
+      if (piiResultsContainer) piiResultsContainer.style.display = "none";
+      renderPiiHighlights();
+    });
+  }
+
+  // Scan Trigger
   if (btnScanPII) {
     btnScanPII.addEventListener("click", async () => {
       if (!state.docId) return showToast("No document loaded", "error");
-      
+
       const types = [];
       if (document.getElementById("piiOptEmail")?.checked) types.push("email");
       if (document.getElementById("piiOptSSN")?.checked) types.push("ssn");
       if (document.getElementById("piiOptPhone")?.checked) types.push("phone");
       if (document.getElementById("piiOptCreditCard")?.checked) types.push("credit_card");
+      if (document.getElementById("piiOptIBAN")?.checked) types.push("iban");
       if (document.getElementById("piiOptDate")?.checked) types.push("date");
       if (document.getElementById("piiOptIP")?.checked) types.push("ipv4");
-      
+      if (document.getElementById("piiOptSecrets")?.checked) types.push("secrets");
+      if (document.getElementById("piiOptPassport")?.checked) types.push("passport");
+
+      const keyModeRadio = document.querySelector('input[name="piiKeyMode"]:checked');
+      const keyMode = keyModeRadio ? keyModeRadio.value : "value_only";
+      const wholeWord = document.getElementById("piiKwWholeWord")?.checked ?? true;
+      const caseSensitive = document.getElementById("piiKwCaseSensitive")?.checked ?? false;
       const customPattern = document.getElementById("piiCustomRegex")?.value || "";
-      const scope = document.getElementById("piiScanScope")?.value || "current";
+      const scope = document.getElementById("piiScanScope")?.value || "all";
       const targetPage = scope === "current" ? state.currentPage : 0;
-      
-      setLoading(true, "Scanning for PII & sensitive patterns...");
+
+      setLoading(true, "Scanning document for sensitive data...");
       try {
         const res = await fetch(`/api/document/${state.docId}/scan-pii`, {
           method: "POST",
@@ -5715,33 +5943,63 @@ function setupPiiScanner() {
           body: JSON.stringify({
             page: targetPage,
             types: types,
+            custom_keys: customKeysList,
+            key_value_mode: keyMode,
+            custom_keywords: customKeywordsList,
+            match_whole_word: wholeWord,
+            case_sensitive: caseSensitive,
             custom_pattern: customPattern
           })
         });
-        if (!res.ok) throw new Error("Failed to scan for PII");
+        if (!res.ok) throw new Error("Failed to scan for sensitive items");
         const data = await res.json();
         state.piiMatches = data.matches || [];
-        
-        piiResultsContainer.style.display = "block";
-        piiResultsCount.textContent = `Found ${state.piiMatches.length} match(es)`;
-        piiMatchesList.innerHTML = "";
-        
-        if (state.piiMatches.length === 0) {
-          piiMatchesList.innerHTML = '<div class="empty-state">No sensitive PII matches found.</div>';
-          showToast("No PII matches found.", "info");
-        } else {
-          state.piiMatches.forEach((m, idx) => {
-            const row = document.createElement("div");
-            row.className = "pii-match-row";
-            row.innerHTML = `
-              <input type="checkbox" class="pii-item-checkbox" data-idx="${idx}" checked />
-              <span class="pii-badge">${escapeHtml(m.type)}</span>
-              <span class="pii-text-val" title="${escapeHtml(m.text)}">P.${m.page}: ${escapeHtml(m.text)}</span>
-            `;
-            piiMatchesList.appendChild(row);
-          });
-          showToast(`Found ${state.piiMatches.length} sensitive item(s)!`, "success");
+
+        if (piiResultsContainer) piiResultsContainer.style.display = "block";
+        if (piiResultsCount) piiResultsCount.textContent = `Found ${state.piiMatches.length} match(es)`;
+        if (piiMatchesList) {
+          piiMatchesList.innerHTML = "";
+          if (state.piiMatches.length === 0) {
+            piiMatchesList.innerHTML = '<div class="empty-state" style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 12px;">No sensitive matches found.</div>';
+            showToast("No sensitive items detected.", "info");
+          } else {
+            state.piiMatches.forEach((m, idx) => {
+              const row = document.createElement("div");
+              row.className = "pii-match-row";
+              row.dataset.idx = idx;
+              const badgeClass = `pii-badge-${m.type || 'custom_regex'}`;
+              row.innerHTML = `
+                <input type="checkbox" class="pii-item-checkbox" data-idx="${idx}" checked />
+                <span class="pii-badge ${badgeClass}">${escapeHtml(m.type || 'MATCH')}</span>
+                <span class="pii-text-val" title="${escapeHtml(m.text)}">P.${m.page}: ${escapeHtml(m.text)}</span>
+              `;
+
+              row.addEventListener("click", async (e) => {
+                if (e.target.tagName === "INPUT") return;
+                document.querySelectorAll(".pii-match-row").forEach(r => r.classList.remove("active"));
+                row.classList.add("active");
+
+                if (m.page !== state.currentPage) {
+                  await loadPage(m.page);
+                }
+
+                // Highlight corresponding canvas box
+                document.querySelectorAll(".pii-canvas-highlight").forEach(box => {
+                  if (parseInt(box.dataset.piiIdx) === idx) {
+                    box.classList.add("focused");
+                    box.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+                  } else {
+                    box.classList.remove("focused");
+                  }
+                });
+              });
+
+              piiMatchesList.appendChild(row);
+            });
+            showToast(`Found ${state.piiMatches.length} sensitive item(s)!`, "success");
+          }
         }
+        renderPiiHighlights();
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -5750,6 +6008,7 @@ function setupPiiScanner() {
     });
   }
 
+  // Toggle All Checkboxes
   if (btnSelectAllPII) {
     btnSelectAllPII.addEventListener("click", () => {
       const cbs = document.querySelectorAll(".pii-item-checkbox");
@@ -5759,20 +6018,33 @@ function setupPiiScanner() {
     });
   }
 
+  // Auto-Redact Selected Items
   if (btnAutoRedactSelected) {
     btnAutoRedactSelected.addEventListener("click", async () => {
       if (!state.docId) return showToast("No document loaded", "error");
       const cbs = document.querySelectorAll(".pii-item-checkbox:checked");
       if (cbs.length === 0) return showToast("Please select at least one match to redact.", "error");
-      
+
       const selectedItems = Array.from(cbs).map(cb => state.piiMatches[parseInt(cb.dataset.idx)]);
-      const label = document.getElementById("piiRedactLabel")?.value || "[REDACTED]";
-      
+      const label = document.getElementById("piiRedactLabel")?.value || "";
+      const fillStyle = document.getElementById("piiFillStyle")?.value || "black";
+      let fillColor = [0.0, 0.0, 0.0];
+      let textColor = [1.0, 1.0, 1.0];
+      if (fillStyle === "white") {
+        fillColor = [1.0, 1.0, 1.0];
+        textColor = [0.0, 0.0, 0.0];
+      } else if (fillStyle === "custom") {
+        const hex = document.getElementById("piiFillColor")?.value || "#000000";
+        fillColor = hexToRgb(hex);
+      }
+
+      const sanitize = document.getElementById("piiSanitizeDoc")?.checked ?? true;
+
       showConfirmModal(
         "Apply Permanent Redaction",
-        `Permanently redact ${selectedItems.length} selected sensitive data item(s)? This will scrub underlying text and image pixels.`,
+        `Permanently redact ${selectedItems.length} selected item(s) from document? This will permanently erase underlying vector text and sanitize metadata.`,
         async () => {
-          setLoading(true, "Applying permanent PII redactions...");
+          setLoading(true, "Applying permanent redactions & sanitizing...");
           try {
             const res = await fetch(`/api/document/${state.docId}/auto-redact-pii`, {
               method: "POST",
@@ -5780,16 +6052,18 @@ function setupPiiScanner() {
               body: JSON.stringify({
                 items: selectedItems,
                 label: label,
-                fill_color: [0.0, 0.0, 0.0],
-                text_color: [1.0, 1.0, 1.0]
+                fill_color: fillColor,
+                text_color: textColor,
+                sanitize_metadata: sanitize
               })
             });
-            if (!res.ok) throw new Error("Failed to auto-redact PII");
+            if (!res.ok) throw new Error("Failed to auto-redact items");
             const data = await res.json();
             updateUndoRedoButtons(true, false);
-            showToast(data.message || "PII Redacted successfully!", "success");
-            piiResultsContainer.style.display = "none";
+            showToast(data.message || "Sensitive items redacted successfully!", "success");
+            if (piiResultsContainer) piiResultsContainer.style.display = "none";
             state.piiMatches = [];
+            renderPiiHighlights();
             await loadPage(state.currentPage);
           } catch (err) {
             showToast(err.message, "error");

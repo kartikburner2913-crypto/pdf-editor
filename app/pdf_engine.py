@@ -2495,25 +2495,84 @@ class PDFEngine:
         wb.save(out)
         return out.getvalue()
 
-    # Feature 2: PII Scanning & Auto-Redaction
+    # Feature 2: PII Scanning, Key-Value Extraction & Auto-Redaction
+    @staticmethod
+    def _is_valid_luhn(card_str: str) -> bool:
+        """Validate credit card number using the Luhn Algorithm (Mod 10)."""
+        import re
+        digits = [int(c) for c in re.sub(r'\D', '', card_str)]
+        if not (13 <= len(digits) <= 19):
+            return False
+        checksum = 0
+        reverse_digits = digits[::-1]
+        for i, d in enumerate(reverse_digits):
+            if i % 2 == 1:
+                d *= 2
+                if d > 9:
+                    d -= 9
+            checksum += d
+        return checksum % 10 == 0
+
+    @staticmethod
+    def _is_valid_ssn(ssn_str: str) -> bool:
+        """Validate US SSN against official SSA formatting rules."""
+        import re
+        digits = re.sub(r'\D', '', ssn_str)
+        if len(digits) != 9:
+            return False
+        area = int(digits[:3])
+        group = int(digits[3:5])
+        serial = int(digits[5:])
+        if area in (0, 666) or 900 <= area <= 999:
+            return False
+        if group == 0 or serial == 0:
+            return False
+        return True
+
+    @staticmethod
+    def _is_valid_ipv4(ip_str: str) -> bool:
+        """Validate IPv4 address components."""
+        parts = ip_str.strip().split('.')
+        if len(parts) != 4:
+            return False
+        for p in parts:
+            if not p.isdigit():
+                return False
+            val = int(p)
+            if val < 0 or val > 255:
+                return False
+        # Avoid common non-PII zero/loopback addresses if isolated
+        if ip_str.strip() in ("0.0.0.0", "255.255.255.255"):
+            return False
+        return True
+
     @staticmethod
     def scan_for_pii(
         pdf_bytes: bytes,
         page_num: int = 0,
         types: Optional[List[str]] = None,
+        custom_keys: Optional[List[str]] = None,
+        key_value_mode: Optional[str] = "value_only",
+        custom_keywords: Optional[List[str]] = None,
+        match_whole_word: bool = True,
+        case_sensitive: bool = False,
         custom_pattern: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Scan document for PII (SSN, Email, Phone, Credit Card, IP, Dates) and custom regex patterns.
+        Scan document for built-in PII, user-defined Key-Value labels, custom keywords/phrases,
+        and regular expressions with mathematical checksum verification.
         """
         import re
         patterns = {
-            "email": (r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b', "Email Address"),
-            "ssn": (r'\b\d{3}-\d{2}-\d{4}\b', "Social Security Number (SSN)"),
-            "phone": (r'\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', "Phone Number"),
-            "credit_card": (r'\b(?:\d{4}[-\s]?){3}\d{4}\b', "Credit Card Number"),
-            "ipv4": (r'\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b', "IPv4 Address"),
-            "date": (r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', "Date / DOB")
+            "email": (r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,12}\b', "Email Address", None),
+            "ssn": (r'\b(?!000|666|9\d{2})\d{3}[-\s]?(?!00)\d{2}[-\s]?(?!0000)\d{4}\b', "Social Security Number", PDFEngine._is_valid_ssn),
+            "phone": (r'\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', "Phone Number", None),
+            "credit_card": (r'\b(?:\d{4}[-\s]?){3}\d{4}\b|\b\d{4}[-\s]?\d{6}[-\s]?\d{5}\b', "Credit Card Number", PDFEngine._is_valid_luhn),
+            "iban": (r'\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7}([A-Z0-9]?){0,16}\b', "IBAN / Bank Account", None),
+            "date": (r'\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4})\b', "Date / DOB", None),
+            "ipv4": (r'\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b', "IPv4 Address", PDFEngine._is_valid_ipv4),
+            "secrets": (r'\b(?:AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36}|bearer\s+[a-zA-Z0-9_\-\.]{20,}|eyJ[a-zA-Z0-9_\-]{10,}\.eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,})\b', "API Key / Secret Token", None),
+            "passport": (r'\b[A-Z]{1,2}[0-9]{7,9}\b', "Passport Number", None)
         }
         
         selected_patterns = {}
@@ -2521,14 +2580,16 @@ class PDFEngine:
             for t in types:
                 if t in patterns:
                     selected_patterns[t] = patterns[t]
-        else:
-            selected_patterns = patterns.copy()
+        elif types is None:
+            # Default subset if none specified
+            for t in ("email", "ssn", "phone", "credit_card", "date", "ipv4"):
+                selected_patterns[t] = patterns[t]
             
         if custom_pattern and custom_pattern.strip():
             try:
                 re.compile(custom_pattern)
-                selected_patterns["custom"] = (custom_pattern, "Custom Pattern")
-            except:
+                selected_patterns["custom_regex"] = (custom_pattern.strip(), "Custom Regex", None)
+            except Exception:
                 pass
                 
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -2539,11 +2600,17 @@ class PDFEngine:
             for pno in target_pages:
                 page = doc[pno]
                 page_text = page.get_text()
+                page_rect = page.rect
                 
-                for type_key, (pattern_str, label) in selected_patterns.items():
-                    for m in re.finditer(pattern_str, page_text, re.IGNORECASE):
-                        match_text = m.group()
-                        if not match_text or len(match_text.strip()) < 3:
+                # 1. Built-in PII patterns and custom regex
+                for type_key, (pattern_str, label, validator) in selected_patterns.items():
+                    flags = re.IGNORECASE if type_key != "secrets" else 0
+                    for m in re.finditer(pattern_str, page_text, flags):
+                        match_text = m.group().strip()
+                        if not match_text or len(match_text) < 3:
+                            continue
+                        
+                        if validator is not None and not validator(match_text):
                             continue
                         
                         quads = page.search_for(match_text)
@@ -2560,6 +2627,87 @@ class PDFEngine:
                                     "bbox": bbox
                                 })
                                 match_id += 1
+
+                # 2. Custom Key-Value Labels (e.g., "Account Number:", "Patient Name:")
+                if custom_keys and len(custom_keys) > 0:
+                    text_dict = page.get_text("dict")
+                    for b in text_dict.get("blocks", []):
+                        if b.get("type") != 0:
+                            continue
+                        for line in b.get("lines", []):
+                            line_spans = line.get("spans", [])
+                            if not line_spans:
+                                continue
+                            line_str = "".join(s.get("text", "") for s in line_spans)
+                            line_bbox = line.get("bbox", [0, 0, 0, 0])
+                            
+                            for k in custom_keys:
+                                k_clean = k.strip()
+                                if not k_clean:
+                                    continue
+                                
+                                # Search for key label with optional delimiter
+                                rgx = rf'(?i)(?:\b|^){re.escape(k_clean)}\s*[:\-–=]?\s*'
+                                m_key = re.search(rgx, line_str)
+                                if m_key:
+                                    val_str = line_str[m_key.end():].strip()
+                                    if val_str and len(val_str) > 0:
+                                        # Clip search to current line bounding region
+                                        clip_r = fitz.Rect(
+                                            max(0.0, line_bbox[0] - 2.0),
+                                            max(0.0, line_bbox[1] - 3.0),
+                                            min(page_rect.width, page_rect.width),
+                                            min(page_rect.height, line_bbox[3] + 3.0)
+                                        )
+                                        
+                                        target_str = line_str[m_key.start():].strip() if key_value_mode == "both" else val_str
+                                        quads = page.search_for(target_str, clip=clip_r)
+                                        if not quads:
+                                            quads = page.search_for(target_str)
+                                            
+                                        for q in quads:
+                                            rect = q.rect if hasattr(q, "rect") else fitz.Rect(q)
+                                            bbox = [round(rect.x0, 2), round(rect.y0, 2), round(rect.x1, 2), round(rect.y1, 2)]
+                                            if not any(item["page"] == pno + 1 and item["bbox"] == bbox for item in matches):
+                                                matches.append({
+                                                    "id": f"pii_{match_id}",
+                                                    "page": pno + 1,
+                                                    "type": "key_value",
+                                                    "label": f"Key: {k_clean}",
+                                                    "text": target_str,
+                                                    "key_name": k_clean,
+                                                    "value_text": val_str,
+                                                    "bbox": bbox
+                                                })
+                                                match_id += 1
+
+                # 3. Custom Keywords & Exact Phrases (e.g. "Acme Corp", "Project Titan")
+                if custom_keywords and len(custom_keywords) > 0:
+                    for kw in custom_keywords:
+                        kw_clean = kw.strip()
+                        if not kw_clean:
+                            continue
+                        kw_pattern = rf'\b{re.escape(kw_clean)}\b' if match_whole_word else re.escape(kw_clean)
+                        kw_flags = 0 if case_sensitive else re.IGNORECASE
+                        for m_kw in re.finditer(kw_pattern, page_text, kw_flags):
+                            matched_kw = m_kw.group().strip()
+                            if not matched_kw:
+                                continue
+                            quads = page.search_for(matched_kw)
+                            for q in quads:
+                                rect = q.rect if hasattr(q, "rect") else fitz.Rect(q)
+                                bbox = [round(rect.x0, 2), round(rect.y0, 2), round(rect.x1, 2), round(rect.y1, 2)]
+                                if not any(item["page"] == pno + 1 and item["bbox"] == bbox for item in matches):
+                                    matches.append({
+                                        "id": f"pii_{match_id}",
+                                        "page": pno + 1,
+                                        "type": "keyword",
+                                        "label": f"Keyword: {kw_clean}",
+                                        "text": matched_kw,
+                                        "bbox": bbox
+                                    })
+                                    match_id += 1
+
             return matches
         finally:
             doc.close()
@@ -2570,18 +2718,22 @@ class PDFEngine:
         items: List[Dict[str, Any]],
         fill_color: Optional[List[float]] = None,
         text_color: Optional[List[float]] = None,
-        label: Optional[str] = "[REDACTED]"
+        label: Optional[str] = "[REDACTED]",
+        sanitize_metadata: bool = True
     ) -> bytes:
-        """Apply permanent redactions on selected PII match items."""
+        """
+        Apply permanent vector redactions to matched items and purge hidden metadata streams.
+        """
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        fill_col = fill_color or [0.0, 0.0, 0.0]
+        fill_col = fill_color if fill_color is not None else [0.0, 0.0, 0.0]
         if any(c > 1.0 for c in fill_col):
             fill_col = [c / 255.0 for c in fill_col]
-        txt_col = text_color or [1.0, 1.0, 1.0]
+        txt_col = text_color if text_color is not None else [1.0, 1.0, 1.0]
         if any(c > 1.0 for c in txt_col):
             txt_col = [c / 255.0 for c in txt_col]
             
         try:
+            pages_to_redact = set()
             for item in items:
                 pno = item.get("page", 1)
                 if not (1 <= pno <= len(doc)):
@@ -2591,19 +2743,44 @@ class PDFEngine:
                     continue
                 page = doc[pno - 1]
                 rect = fitz.Rect(bbox)
+                # Expand rect slightly by 0.5pt for clean edge coverage
+                expanded_rect = fitz.Rect(rect.x0 - 0.5, rect.y0 - 0.5, rect.x1 + 0.5, rect.y1 + 0.5)
                 lbl = item.get("label_text", label or "")
+                
                 page.add_redact_annot(
-                    rect,
-                    text=lbl,
+                    expanded_rect,
+                    text=lbl if (lbl and lbl.strip()) else "",
                     fontname="hebo",
-                    fontsize=8.0,
+                    fontsize=7.5,
                     text_color=txt_col,
                     fill=fill_col,
                     align=fitz.TEXT_ALIGN_CENTER
                 )
+                pages_to_redact.add(pno - 1)
                 
-            for page in doc:
-                page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_PIXELS)
+            for pno in pages_to_redact:
+                doc[pno].apply_redactions(
+                    images=fitz.PDF_REDACT_IMAGE_NONE,
+                    graphics=fitz.PDF_REDACT_LINE_ART_NONE
+                )
+                
+            if sanitize_metadata:
+                try:
+                    doc.scrub(
+                        attached_files=True,
+                        clean_pages=True,
+                        embedded_files=True,
+                        hidden_text=False,
+                        javascript=True,
+                        metadata=True,
+                        redactions=True,
+                        reset_fields=False,
+                        reset_responses=False,
+                        thumbnails=True,
+                        xml_metadata=True
+                    )
+                except Exception:
+                    pass
                 
             output = io.BytesIO()
             doc.save(output, garbage=4, deflate=True)

@@ -326,6 +326,11 @@ class TableExportRequest(BaseModel):
 class ScanPIIRequest(BaseModel):
     page: int = 0
     types: Optional[List[str]] = None
+    custom_keys: Optional[List[str]] = None
+    key_value_mode: Optional[str] = "value_only"
+    custom_keywords: Optional[List[str]] = None
+    match_whole_word: Optional[bool] = True
+    case_sensitive: Optional[bool] = False
     custom_pattern: Optional[str] = None
 
 
@@ -334,6 +339,7 @@ class AutoRedactPIIRequest(BaseModel):
     fill_color: Optional[List[float]] = [0.0, 0.0, 0.0]
     text_color: Optional[List[float]] = [1.0, 1.0, 1.0]
     label: Optional[str] = "[REDACTED]"
+    sanitize_metadata: Optional[bool] = True
 
 
 class TextMarkupRequest(BaseModel):
@@ -1424,13 +1430,18 @@ async def export_table_excel(doc_id: str, req: TableExportRequest):
 # --- FEATURE 2: PII SCANNING & AUTO-REDACTION ---
 @app.post("/api/document/{doc_id}/scan-pii")
 async def scan_for_pii(doc_id: str, req: ScanPIIRequest):
-    """Scan document for PII and regex patterns."""
+    """Scan document for PII, custom key-value pairs, keywords, and regex patterns."""
     doc = get_doc(doc_id)
     try:
         matches = PDFEngine.scan_for_pii(
             doc["current_bytes"],
             page_num=req.page,
             types=req.types,
+            custom_keys=req.custom_keys,
+            key_value_mode=req.key_value_mode,
+            custom_keywords=req.custom_keywords,
+            match_whole_word=bool(req.match_whole_word),
+            case_sensitive=bool(req.case_sensitive),
             custom_pattern=req.custom_pattern
         )
         return {"matches": matches, "total": len(matches)}
@@ -1440,7 +1451,7 @@ async def scan_for_pii(doc_id: str, req: ScanPIIRequest):
 
 @app.post("/api/document/{doc_id}/auto-redact-pii")
 async def auto_redact_pii(doc_id: str, req: AutoRedactPIIRequest):
-    """Apply permanent vector redactions to matched PII items."""
+    """Apply permanent vector redactions to matched PII items and sanitize metadata."""
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.auto_redact_pii(
@@ -1448,11 +1459,12 @@ async def auto_redact_pii(doc_id: str, req: AutoRedactPIIRequest):
             items=req.items,
             fill_color=req.fill_color,
             text_color=req.text_color,
-            label=req.label
+            label=req.label,
+            sanitize_metadata=bool(req.sanitize_metadata)
         )
         save_new_version(doc_id, new_pdf)
         info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"{len(req.items)} PII matches redacted.", "info": info}
+        return {"status": "success", "message": f"{len(req.items)} sensitive items permanently redacted.", "info": info}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error auto-redacting PII: {str(e)}")
 
