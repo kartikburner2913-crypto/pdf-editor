@@ -41,7 +41,9 @@ const state = {
   measurePoints: [],
   measureScale: 1.0,
   measureUnit: "in",
-  isVisualCropping: false
+  isVisualCropping: false,
+  pageBundleCache: new Map(),
+  docVersion: 1
 };
 
 let activeTransformBox = null;
@@ -425,14 +427,46 @@ function updatePageOrderInput() {
   if (customPageOrder) customPageOrder.value = pages.join(", ");
 }
 
+function invalidatePageCache() {
+  if (state.pageBundleCache) state.pageBundleCache.clear();
+  state.docVersion = (state.docVersion || 1) + 1;
+}
+
 function updateUndoRedoButtons(canUndo, canRedo) {
+  if (canUndo) invalidatePageCache();
   if (btnUndo) btnUndo.disabled = !canUndo;
   if (btnRedo) btnRedo.disabled = !canRedo;
 }
 
 // ==========================================================================
-// Page Loading & Rendering
+// High-Speed Page Loading, Bundling & Caching
 // ==========================================================================
+
+async function fetchPageBundle(pageNumber) {
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  if (state.pageBundleCache && state.pageBundleCache.has(cacheKey)) {
+    return state.pageBundleCache.get(cacheKey);
+  }
+
+  const res = await fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`);
+  if (!res.ok) throw new Error(`Failed to load page ${pageNumber} bundle`);
+  const bundle = await res.json();
+  if (state.pageBundleCache) state.pageBundleCache.set(cacheKey, bundle);
+  return bundle;
+}
+
+function prefetchPageBundle(pageNumber) {
+  if (!state.docId || pageNumber < 1 || pageNumber > state.totalPages) return;
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  if (state.pageBundleCache && state.pageBundleCache.has(cacheKey)) return;
+
+  fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`)
+    .then(res => res.ok ? res.json() : null)
+    .then(bundle => {
+      if (bundle && state.pageBundleCache) state.pageBundleCache.set(cacheKey, bundle);
+    })
+    .catch(() => {});
+}
 
 async function loadPage(pageNumber, _opts = {}) {
   if (!state.docId) return;
@@ -440,7 +474,12 @@ async function loadPage(pageNumber, _opts = {}) {
   state.currentPage = pageNumber;
   pageNumberInput.value = pageNumber;
   updateZoomSelectLabel();
-  setLoading(true, `Loading Page ${pageNumber}...`);
+
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const isCached = state.pageBundleCache && state.pageBundleCache.has(cacheKey);
+  if (!isCached) {
+    setLoading(true, `Loading Page ${pageNumber}...`);
+  }
 
   // Capture scroll position so it is always restored after re-render
   const viewport = document.getElementById("canvasViewport");
@@ -457,12 +496,14 @@ async function loadPage(pageNumber, _opts = {}) {
   }
 
   try {
-    const cacheBuster = Date.now();
-    pdfPageImage.src = `/api/document/${state.docId}/page/${pageNumber}/image?zoom=${state.zoom}&t=${cacheBuster}`;
+    const bundle = await fetchPageBundle(pageNumber);
 
-    await new Promise((resolve, reject) => {
+    pdfPageImage.src = bundle.image_data_url;
+
+    await new Promise((resolve) => {
+      if (pdfPageImage.complete) return resolve();
       pdfPageImage.onload = () => resolve();
-      pdfPageImage.onerror = () => reject(new Error("Failed to render page preview image"));
+      pdfPageImage.onerror = () => resolve();
     });
 
     // Release temporary min-dimension lock
@@ -472,17 +513,22 @@ async function loadPage(pageNumber, _opts = {}) {
     }
 
     // Extract PDF point dimensions
-    if (state.docInfo && state.docInfo.pages && state.docInfo.pages[pageNumber - 1]) {
-      const pInfo = state.docInfo.pages[pageNumber - 1];
-      state.pageWidthPt = pInfo.width;
-      state.pageHeightPt = pInfo.height;
-    }
+    state.pageWidthPt = bundle.width || (state.docInfo?.pages?.[pageNumber - 1]?.width) || 595;
+    state.pageHeightPt = bundle.height || (state.docInfo?.pages?.[pageNumber - 1]?.height) || 842;
 
     cancelTransformBox();
     syncActiveThumbnail(pageNumber);
-    await loadTextBlocks(pageNumber);
-    await loadPageImages(pageNumber);
-    await loadAnnotations(pageNumber);
+
+    // Apply layout elements directly from single bundle response
+    state.textBlocks = bundle.text_blocks || [];
+    renderBlockHighlights();
+
+    state.pageImages = bundle.images || [];
+    renderPageImageOverlays(pageNumber);
+
+    state.annotations = bundle.annotations || [];
+    renderAnnotationOverlays(pageNumber);
+
     renderSearchHighlights();
     renderPiiHighlights();
 
@@ -505,6 +551,14 @@ async function loadPage(pageNumber, _opts = {}) {
       await loadFormFields();
     }
     if (state.isInkMode) syncInkCanvasSize();
+
+    // Speculative prefetch adjacent pages during idle time
+    if (pageNumber < state.totalPages) {
+      setTimeout(() => prefetchPageBundle(pageNumber + 1), 200);
+    }
+    if (pageNumber > 1) {
+      setTimeout(() => prefetchPageBundle(pageNumber - 1), 400);
+    }
 
   } catch (err) {
     showToast(err.message, "error");
@@ -4952,6 +5006,19 @@ function populateThumbnails() {
 
   let draggedItem = null;
 
+  const thumbnailObserver = ("IntersectionObserver" in window) ? new IntersectionObserver((entries, observer) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const img = entry.target;
+        if (img.dataset.src) {
+          img.src = img.dataset.src;
+          img.removeAttribute("data-src");
+          observer.unobserve(img);
+        }
+      }
+    });
+  }, { root: previewList, rootMargin: "120px 0px" }) : null;
+
   for (let i = 1; i <= state.totalPages; i++) {
     const wrapper = document.createElement("div");
     wrapper.className = "thumbnail-wrapper";
@@ -5012,7 +5079,18 @@ function populateThumbnails() {
     const img = document.createElement("img");
     img.className = "thumbnail-image";
     img.loading = "lazy";
-    img.src = `/api/document/${state.docId}/page/${i}/image?zoom=0.2&t=${Date.now()}`;
+    const thumbUrl = `/api/document/${state.docId}/page/${i}/image?zoom=0.18&v=${state.docVersion || 1}`;
+
+    if (thumbnailObserver) {
+      if (i <= 4) {
+        img.src = thumbUrl;
+      } else {
+        img.dataset.src = thumbUrl;
+        thumbnailObserver.observe(img);
+      }
+    } else {
+      img.src = thumbUrl;
+    }
 
     const num = document.createElement("div");
     num.className = "thumbnail-number";

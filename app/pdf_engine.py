@@ -144,6 +144,198 @@ class PDFEngine:
             doc.close()
 
     @staticmethod
+    def get_page_bundle(pdf_bytes: bytes, page_number: int, zoom: float = 1.5) -> Dict[str, Any]:
+        """
+        High-performance unified page extractor.
+        Renders image, extracts text blocks, annotations, and page images in a single PyMuPDF document pass.
+        """
+        import base64
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            if not (1 <= page_number <= len(doc)):
+                raise ValueError(f"Page number {page_number} is out of range (1..{len(doc)})")
+            page_idx = page_number - 1
+            page = doc[page_idx]
+            
+            # 1. Page dimensions
+            rect = page.rect
+            width_pt = round(rect.width, 2)
+            height_pt = round(rect.height, 2)
+            
+            # 2. Render image to PNG data URL
+            mat = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            img_bytes = pix.tobytes("png")
+            img_b64 = base64.b64encode(img_bytes).decode("ascii")
+            image_data_url = f"data:image/png;base64,{img_b64}"
+            
+            # 3. Extract text blocks (using the cohesive clustering engine)
+            text_dict = page.get_text("dict")
+            blocks_result = []
+            block_counter = 0
+
+            for b in text_dict.get("blocks", []):
+                if b.get("type") == 0:  # text block
+                    lines = b.get("lines", [])
+                    if not lines:
+                        continue
+                    
+                    valid_lines = []
+                    for line in lines:
+                        spans = line.get("spans", [])
+                        if not spans:
+                            continue
+                        line_text = "".join(s.get("text", "") for s in spans).strip()
+                        if line_text:
+                            valid_lines.append({
+                                "bbox": [round(c, 2) for c in line.get("bbox", [0, 0, 0, 0])],
+                                "text": line_text,
+                                "spans": spans
+                            })
+                    
+                    if not valid_lines:
+                        continue
+                    
+                    clusters = []
+                    current_cluster = [valid_lines[0]]
+                    
+                    for next_line in valid_lines[1:]:
+                        prev_line = current_cluster[-1]
+                        prev_y0, prev_y1 = prev_line["bbox"][1], prev_line["bbox"][3]
+                        next_y0, next_y1 = next_line["bbox"][1], next_line["bbox"][3]
+                        prev_h = max(4.0, prev_y1 - prev_y0)
+                        next_h = max(4.0, next_y1 - next_y0)
+                        avg_h = (prev_h + next_h) / 2.0
+                        
+                        has_y_overlap = False
+                        for existing in current_cluster:
+                            e_y0, e_y1 = existing["bbox"][1], existing["bbox"][3]
+                            overlap = max(0.0, min(e_y1, next_y1) - max(e_y0, next_y0))
+                            if overlap > 0.35 * min(e_y1 - e_y0, next_y1 - next_y0):
+                                has_y_overlap = True
+                                break
+                        
+                        dy = next_y0 - prev_y1
+                        is_nearby = dy < (avg_h * 1.6)
+                        
+                        if is_nearby and not has_y_overlap:
+                            current_cluster.append(next_line)
+                        else:
+                            clusters.append(current_cluster)
+                            current_cluster = [next_line]
+                    
+                    if current_cluster:
+                        clusters.append(current_cluster)
+                    
+                    for cluster in clusters:
+                        all_x0 = min(l["bbox"][0] for l in cluster)
+                        all_y0 = min(l["bbox"][1] for l in cluster)
+                        all_x1 = max(l["bbox"][2] for l in cluster)
+                        all_y1 = max(l["bbox"][3] for l in cluster)
+                        
+                        cluster_text = "\n".join(l["text"] for l in cluster)
+                        
+                        font_sizes = []
+                        font_names = []
+                        font_colors = []
+                        is_bold = False
+                        is_italic = False
+                        
+                        for l in cluster:
+                            for s in l["spans"]:
+                                font_sizes.append(s.get("size", 11.0))
+                                font_names.append(s.get("font", "Helvetica"))
+                                col = s.get("color", 0)
+                                if isinstance(col, int):
+                                    r = ((col >> 16) & 255) / 255.0
+                                    g = ((col >> 8) & 255) / 255.0
+                                    bl = (col & 255) / 255.0
+                                    font_colors.append([round(r, 3), round(g, 3), round(bl, 3)])
+                                elif isinstance(col, (list, tuple)):
+                                    font_colors.append([round(c, 3) for c in col])
+                                
+                                flags = s.get("flags", 0)
+                                if flags & 2 or "bold" in s.get("font", "").lower():
+                                    is_bold = True
+                                if flags & 1 or "italic" in s.get("font", "").lower() or "oblique" in s.get("font", "").lower():
+                                    is_italic = True
+
+                        avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 11.0
+                        primary_font = max(set(font_names), key=font_names.count) if font_names else "Helvetica"
+                        primary_color = font_colors[0] if font_colors else [0.0, 0.0, 0.0]
+
+                        blocks_result.append({
+                            "id": f"block_{page_number}_{block_counter}",
+                            "bbox": [round(all_x0, 2), round(all_y0, 2), round(all_x1, 2), round(all_y1, 2)],
+                            "text": cluster_text,
+                            "font_name": primary_font,
+                            "font_size": round(avg_font_size, 1),
+                            "color": primary_color,
+                            "is_bold": is_bold,
+                            "is_italic": is_italic,
+                            "lines": cluster
+                        })
+                        block_counter += 1
+
+            # 4. Extract annotations
+            annots_list = []
+            for idx, a in enumerate(page.annots()):
+                type_name = a.type[1] if isinstance(a.type, (list, tuple)) else str(a.type)
+                info = a.info or {}
+                author_val = info.get("title", "") or info.get("author", "")
+                annots_list.append({
+                    "index": idx,
+                    "id": info.get("id", f"annot_{page_number}_{idx}"),
+                    "type": type_name,
+                    "type_id": a.type[0] if isinstance(a.type, (list, tuple)) else 0,
+                    "rect": [round(c, 2) for c in a.rect],
+                    "content": info.get("content", ""),
+                    "title": info.get("title", ""),
+                    "author": author_val,
+                    "name": info.get("name", "")
+                })
+
+            # 5. Extract images
+            images_list = []
+            seen_bboxes = set()
+            img_list = page.get_images(full=True)
+            smask_xrefs = {item[1] for item in img_list if len(item) > 1 and item[1] > 0}
+
+            for item in img_list:
+                xref = item[0]
+                orig_w = item[2]
+                orig_h = item[3]
+                if xref in smask_xrefs or (orig_w <= 1 and orig_h <= 1):
+                    continue
+                rects = page.get_image_rects(xref)
+                for r in rects:
+                    bbox_tuple = (round(r.x0, 1), round(r.y0, 1), round(r.x1, 1), round(r.y1, 1))
+                    if bbox_tuple in seen_bboxes:
+                        continue
+                    seen_bboxes.add(bbox_tuple)
+                    images_list.append({
+                        "xref": xref,
+                        "bbox": [round(r.x0, 2), round(r.y0, 2), round(r.x1, 2), round(r.y1, 2)],
+                        "width": round(r.width, 2),
+                        "height": round(r.height, 2),
+                        "orig_width": orig_w,
+                        "orig_height": orig_h
+                    })
+
+            return {
+                "page_number": page_number,
+                "width": width_pt,
+                "height": height_pt,
+                "rotation": page.rotation,
+                "image_data_url": image_data_url,
+                "text_blocks": blocks_result,
+                "annotations": annots_list,
+                "images": images_list
+            }
+        finally:
+            doc.close()
+
+    @staticmethod
     def render_page_image(pdf_bytes: bytes, page_number: int, zoom: float = 1.5) -> bytes:
         """Render a single page to PNG bytes for browser preview."""
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")

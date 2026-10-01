@@ -16,11 +16,16 @@ from pydantic import BaseModel
 
 from app.pdf_engine import PDFEngine
 
+from fastapi.middleware.gzip import GZipMiddleware
+
 app = FastAPI(
     title="In-House PDF Editor",
     description="Local, private, high-performance PDF editor powered by PyMuPDF and FastAPI.",
     version="1.0.0"
 )
+
+# Enable automatic Gzip compression for all JSON and static payloads > 1KB
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Resolve paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -466,13 +471,34 @@ async def get_document_info(doc_id: str):
     }
 
 
+@app.get("/api/document/{doc_id}/page/{page_number}/bundle")
+def get_page_bundle(doc_id: str, page_number: int, zoom: float = Query(1.5, ge=0.1, le=5.0)):
+    """
+    High-speed unified page bundle endpoint.
+    Returns rendered image, text blocks, annotations, and images in a single network round-trip.
+    """
+    doc = get_doc(doc_id)
+    try:
+        bundle = PDFEngine.get_page_bundle(doc["current_bytes"], page_number, zoom=zoom)
+        bundle["version"] = doc.get("current_version", 1)
+        return bundle
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading page bundle: {str(e)}")
+
+
 @app.get("/api/document/{doc_id}/page/{page_number}/image")
-async def get_page_image(doc_id: str, page_number: int, zoom: float = Query(1.5, ge=0.1, le=5.0)):
-    """Render a page to PNG for interactive browser viewing."""
+def get_page_image(doc_id: str, page_number: int, zoom: float = Query(1.5, ge=0.1, le=5.0)):
+    """Render a page to PNG for interactive browser viewing with cache headers."""
     doc = get_doc(doc_id)
     try:
         png_bytes = PDFEngine.render_page_image(doc["current_bytes"], page_number, zoom=zoom)
-        return StreamingResponse(io.BytesIO(png_bytes), media_type="image/png")
+        return Response(
+            content=png_bytes,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"}
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
