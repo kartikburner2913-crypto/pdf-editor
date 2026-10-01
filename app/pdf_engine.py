@@ -9,8 +9,7 @@ import os
 import zipfile
 from typing import List, Dict, Any, Optional, Tuple, Union
 import pymupdf as fitz
-import numpy as np
-import cv2
+from PIL import Image
 
 class PDFEngine:
     """Core PDF manipulation engine utilizing PyMuPDF."""
@@ -32,13 +31,14 @@ class PDFEngine:
             zoom = 300 / 72
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat)
-            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
-            if pix.n == 4:
-                img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
-            elif pix.n == 1:
-                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            if pix.n == 4:  # RGBA
+                pil_img = Image.frombytes("RGBA", (pix.w, pix.h), pix.samples).convert("RGB")
+            elif pix.n == 1:  # Grayscale
+                pil_img = Image.frombytes("L", (pix.w, pix.h), pix.samples).convert("RGB")
+            else:  # RGB
+                pil_img = Image.frombytes("RGB", (pix.w, pix.h), pix.samples)
                 
-            result, _ = ocr(img)
+            result, _ = ocr(pil_img)
             
             blocks = []
             if result:
