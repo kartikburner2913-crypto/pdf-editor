@@ -1324,10 +1324,7 @@ async def get_extracted_image(doc_id: str, xref: int):
     try:
         pdf_doc = fitz.open(stream=doc["current_bytes"], filetype="pdf")
         try:
-            img_dict = pdf_doc.extract_image(xref)
-            img_bytes = img_dict["image"]
-            ext = img_dict.get("ext", "png")
-            media_type = f"image/{ext}" if ext in ("png", "jpeg", "webp") else "image/png"
+            img_bytes, media_type = PDFEngine.extract_image_bytes(pdf_doc, xref, normalize_alpha=True)
             return Response(content=img_bytes, media_type=media_type)
         finally:
             pdf_doc.close()

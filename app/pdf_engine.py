@@ -307,10 +307,14 @@ class PDFEngine:
 
             for item in img_list:
                 xref = item[0]
+                smask = item[1] if len(item) > 1 else 0
                 orig_w = item[2]
                 orig_h = item[3]
                 if xref in smask_xrefs or (orig_w <= 1 and orig_h <= 1):
                     continue
+
+                detected_opacity = PDFEngine._extract_image_opacity(doc, xref, smask)
+
                 rects = page.get_image_rects(xref)
                 for r in rects:
                     bbox_tuple = (round(r.x0, 1), round(r.y0, 1), round(r.x1, 1), round(r.y1, 1))
@@ -323,7 +327,8 @@ class PDFEngine:
                         "width": round(r.width, 2),
                         "height": round(r.height, 2),
                         "orig_width": orig_w,
-                        "orig_height": orig_h
+                        "orig_height": orig_h,
+                        "opacity": detected_opacity
                     })
 
             return {
@@ -804,6 +809,68 @@ class PDFEngine:
         )
 
     @staticmethod
+    def _extract_image_opacity(doc: fitz.Document, xref: int, smask_xref: int = 0) -> float:
+        """Detect the effective opacity/transparency level of an image on a PDF page."""
+        try:
+            target_smask = smask_xref
+            if target_smask <= 0:
+                img_info = doc.extract_image(xref)
+                target_smask = img_info.get("smask", 0)
+            
+            if target_smask > 0:
+                smask_dict = doc.extract_image(target_smask)
+                if smask_dict and "image" in smask_dict:
+                    smask_img = Image.open(io.BytesIO(smask_dict["image"]))
+                    extrema = smask_img.getextrema()
+                    max_a = extrema[1] if isinstance(extrema, tuple) else extrema
+                    if max_a is not None and max_a > 0:
+                        return round(max_a / 255.0, 2)
+            return 1.0
+        except Exception:
+            return 1.0
+
+    @staticmethod
+    def extract_image_bytes(doc: fitz.Document, xref: int, normalize_alpha: bool = True) -> Tuple[bytes, str]:
+        """Extract and normalize image bytes with soft mask preservation for crisp web preview and re-editing."""
+        try:
+            img_info = doc.extract_image(xref)
+            smask = img_info.get("smask", 0)
+            
+            if smask > 0:
+                pix = fitz.Pixmap(doc, xref)
+                smask_pix = fitz.Pixmap(doc, smask)
+                
+                if pix.colorspace and pix.colorspace.n not in (1, 3):
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                if smask_pix.colorspace and smask_pix.colorspace.n != 1:
+                    smask_pix = fitz.Pixmap(fitz.csGRAY, smask_pix)
+                if pix.colorspace and pix.colorspace.n != 3:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                    
+                combined = fitz.Pixmap(pix, smask_pix)
+                img = Image.open(io.BytesIO(combined.tobytes("png")))
+                
+                if normalize_alpha and img.mode == "RGBA":
+                    r, g, b, a = img.split()
+                    max_a = max(a.getdata()) if a else 255
+                    if 0 < max_a < 255:
+                        scale = 255.0 / max_a
+                        a = a.point(lambda p: int(min(255, round(p * scale))))
+                        img = Image.merge("RGBA", (r, g, b, a))
+                
+                out = io.BytesIO()
+                img.save(out, format="PNG")
+                return out.getvalue(), "image/png"
+            else:
+                img_bytes = img_info["image"]
+                ext = img_info.get("ext", "png")
+                media_type = f"image/{ext}" if ext in ("png", "jpeg", "webp") else "image/png"
+                return img_bytes, media_type
+        except Exception:
+            img_dict = doc.extract_image(xref)
+            return img_dict["image"], "image/png"
+
+    @staticmethod
     def get_page_images_info(pdf_bytes: bytes, page_num: int) -> List[Dict[str, Any]]:
         """Extract bounding boxes and metadata of all images on a page."""
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -819,10 +886,14 @@ class PDFEngine:
 
             for item in img_list:
                 xref = item[0]
+                smask = item[1] if len(item) > 1 else 0
                 orig_w = item[2]
                 orig_h = item[3]
                 if xref in smask_xrefs or (orig_w <= 1 and orig_h <= 1):
                     continue
+
+                detected_opacity = PDFEngine._extract_image_opacity(doc, xref, smask)
+
                 rects = page.get_image_rects(xref)
                 for r in rects:
                     bbox_tuple = (round(r.x0, 1), round(r.y0, 1), round(r.x1, 1), round(r.y1, 1))
@@ -835,7 +906,8 @@ class PDFEngine:
                         "width": round(r.width, 2),
                         "height": round(r.height, 2),
                         "orig_width": orig_w,
-                        "orig_height": orig_h
+                        "orig_height": orig_h,
+                        "opacity": detected_opacity
                     })
             return images_info
         finally:
@@ -903,11 +975,18 @@ class PDFEngine:
             elif rotation != 0:
                 img = img.rotate(-rotation, expand=True, resample=Image.BICUBIC)
 
+            # Check and normalize baseline alpha range if previously attenuated
+            r, g, b, a = img.split()
+            max_a = max(a.getdata()) if a else 255
+            if 0 < max_a < 255:
+                scale = 255.0 / max_a
+                a = a.point(lambda p: int(min(255, round(p * scale))))
+
             if opacity < 0.999:
-                r, g, b, a = img.split()
                 op = max(0.0, min(1.0, float(opacity)))
-                a = a.point(lambda p: int(p * op))
-                img = Image.merge("RGBA", (r, g, b, a))
+                a = a.point(lambda p: int(round(p * op)))
+
+            img = Image.merge("RGBA", (r, g, b, a))
 
             out = io.BytesIO()
             img.save(out, format="PNG")
@@ -956,8 +1035,7 @@ class PDFEngine:
             if new_image_bytes:
                 img_bytes = new_image_bytes
             elif target_xref is not None:
-                img_dict = doc.extract_image(target_xref)
-                img_bytes = img_dict["image"]
+                img_bytes, _ = PDFEngine.extract_image_bytes(doc, target_xref, normalize_alpha=True)
             else:
                 raise ValueError("Could not extract image bytes")
 
@@ -1111,9 +1189,8 @@ class PDFEngine:
                     rects = page.get_image_rects(target_xref)
                     target_rect = rects[0] if rects else (fitz.Rect(bbox) if bbox else fitz.Rect(50, 50, 200, 200))
 
-                # Extract existing image bytes
-                img_dict = doc.extract_image(target_xref)
-                img_bytes = img_dict["image"]
+                # Extract existing image bytes with transparency intact
+                img_bytes, _ = PDFEngine.extract_image_bytes(doc, target_xref, normalize_alpha=False)
 
                 # Native image deletion (zero redactions)
                 if hasattr(page, "delete_image"):

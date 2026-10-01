@@ -702,6 +702,7 @@ function renderPageImageOverlays(pageNumber) {
         xref: img.xref,
         orig_width: img.orig_width,
         orig_height: img.orig_height,
+        opacity: img.opacity !== undefined ? img.opacity : 1.0,
         imgSrc: img.image_url || `/api/document/${state.docId}/image/${img.xref}`,
         divElement: div
       });
@@ -2788,6 +2789,7 @@ function initLiveImageTransformBox(options = {}) {
     imgEl.style.transform = `rotate(${currentRotation}deg) scale(${currentFlipH ? -1 : 1}, ${currentFlipV ? -1 : 1})`;
     imgEl.style.objectFit = isRatioLocked ? "contain" : "fill";
   }
+  applyImgStyles();
 
   if (currentImgSrc) {
     imgEl.src = currentImgSrc;
