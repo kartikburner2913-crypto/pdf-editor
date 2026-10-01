@@ -1,0 +1,1720 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>In-House Local PDF Studio &amp; Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.1" />
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <div class="logo-box">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>Local PDF Studio</h1>
+        <span class="badge offline-badge">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          100% Offline &amp; Private
+        </span>
+      </div>
+    </div>
+    
+    <div class="nav-actions" id="topNavActions" style="display: none;">
+      <span id="activeFilename" class="doc-badge" title="Active PDF">document.pdf</span>
+
+      <div class="btn-group-nav">
+        <button id="btnSearchToggle" class="btn btn-nav-icon" title="Search Text in Document (Ctrl+F)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <span>Find</span>
+        </button>
+        <button id="btnUndo" class="btn btn-nav-icon" title="Undo last change (Ctrl+Z)" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+          <span>Undo</span>
+        </button>
+        <button id="btnRedo" class="btn btn-nav-icon" title="Redo last change (Ctrl+Y)" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path></svg>
+          <span>Redo</span>
+        </button>
+        <button id="btnTopCompare" class="btn btn-nav-icon" title="Compare with Another PDF">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="8" height="18" rx="2"></rect><rect x="14" y="3" width="8" height="18" rx="2"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+          <span>Compare</span>
+        </button>
+        <button id="btnReset" class="btn btn-nav-icon" title="Revert to original uploaded document">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
+          <span>Revert</span>
+        </button>
+      </div>
+
+      <div class="nav-separator"></div>
+
+      <button id="btnCommandPalette" class="btn btn-outline btn-sm" title="Command Palette (Ctrl+K)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        <span class="cmd-badge">Ctrl+K</span>
+      </button>
+
+      <button id="btnThemeToggle" class="btn btn-icon-only" title="Toggle Dark/Light Mode">
+        <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        <svg id="themeIconMoon" style="display:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      </button>
+
+      <button id="btnDownload" class="btn btn-primary" title="Download edited PDF (Ctrl+S)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span>Download PDF</span>
+      </button>
+      
+      <button id="btnNewDoc" class="btn btn-secondary" title="Open another PDF file">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <span>Open</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Notification Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Main Container -->
+  <main class="main-content">
+    <!-- Landing / Dropzone View -->
+    <section id="uploadSection" class="upload-hero">
+      <div class="hero-header">
+        <div class="hero-pill">
+          <span class="pulse-dot"></span>
+          Enterprise Offline PDF Engine
+        </div>
+        <h2>Commercial PDF Studio, Running 100% Locally</h2>
+        <p>Edit text natively, author AcroForms, place true redactions, reorder &amp; split pages, stamp signatures, and inspect PDF/A compliance — zero cloud tracking.</p>
+      </div>
+
+      <div class="dropzone" id="dropZone">
+        <div class="dropzone-inner">
+          <div class="drop-icon-box">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </div>
+          <h3>Drag and drop your PDF here</h3>
+          <p>or click to browse files from your computer</p>
+          <input type="file" id="pdfFileInput" accept="application/pdf" hidden />
+          <button type="button" class="btn btn-primary btn-lg" onclick="document.getElementById('pdfFileInput').click()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Choose PDF File
+          </button>
+          <span class="dropzone-hint">Supports all PDF versions 1.0–2.0, encrypted docs, and forms.</span>
+        </div>
+      </div>
+
+      <!-- Feature Grid on Landing Page -->
+      <div class="feature-grid">
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+          </div>
+          <h4>Native Text Editing</h4>
+          <p>Click-to-edit existing text blocks, WYSIWYG rich text box insertion, and exact font replacement.</p>
+        </div>
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-emerald">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          </div>
+          <h4>Interactive AcroForms</h4>
+          <p>Fill out fillable PDF forms, create form inputs/checkboxes/dropdowns, and flatten forms permanently.</p>
+        </div>
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-rose">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          </div>
+          <h4>True Redaction</h4>
+          <p>Permanently scrub sensitive text, images, and metadata with custom redaction reason codes.</p>
+        </div>
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-amber">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+          </div>
+          <h4>Page Organization</h4>
+          <p>Drag-and-drop page reordering, rotate, duplicate, crop margins, insert blanks, and add page numbers.</p>
+        </div>
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-purple">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          </div>
+          <h4>Ink, Stamps &amp; Notes</h4>
+          <p>Freehand pencil drawing with eraser, sticky note placement, and official verification stamps.</p>
+        </div>
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-cyan">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          </div>
+          <h4>Security &amp; Compliance</h4>
+          <p>AES-256 encryption, document sanitization, stream compression, and PDF/A conformance inspection.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Editor Workspace (Shown after PDF is loaded) -->
+    <section id="workspaceSection" class="workspace" style="display: none;">
+      <!-- Categorized Sidebar -->
+      <aside class="sidebar" id="mainSidebar">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar-nav">
+          <div class="nav-category">
+            <span class="category-title">Edit &amp; Create</span>
+            <div class="category-buttons">
+              <button class="tab-btn active" data-tab="tab-edit" title="Edit Existing Text">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                <span>Edit Text</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-add" title="Add New Text Box">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add Text</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-image" title="Insert Image / Signature">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                <span>Images</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-shapes" title="Draw Shapes &amp; Lines">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
+                <span>Shapes</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-forms" title="AcroForms &amp; Fields">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                <span>Forms</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="nav-category">
+            <span class="category-title">Organize &amp; Pages</span>
+            <div class="category-buttons">
+              <button class="tab-btn" data-tab="tab-organize" title="Pages &amp; Layout">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                <span>Pages</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-page-numbers" title="Add Page Numbering">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="9" y1="18" x2="15" y2="18"></line></svg>
+                <span>Numbering</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-split" title="Split &amp; Extract Pages">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
+                <span>Split</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-merge" title="Merge PDFs">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span>Merge</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="nav-category">
+            <span class="category-title">Protect &amp; Redact</span>
+            <div class="category-buttons">
+              <button class="tab-btn" data-tab="tab-redact" title="True Redaction &amp; Sanitization">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                <span>Redact</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-watermark" title="Stamp Watermark">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
+                <span>Watermark</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-protect" title="Password &amp; Encryption">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <span>Password</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="nav-category">
+            <span class="category-title">Tools &amp; Utilities</span>
+            <div class="category-buttons">
+              <button class="tab-btn" data-tab="tab-annotate" title="Ink, Stamps &amp; Sticky Notes">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.375 2.625a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4Z"></path></svg>
+                <span>Annotate</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-bookmarks" title="Bookmarks &amp; Outline Tree">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+                <span>Outline</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-extract" title="Extract Text &amp; Images">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <span>Extract</span>
+              </button>
+              <button class="tab-btn" data-tab="tab-optimize" title="Metadata, Compress &amp; Audit">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span>Audit</span>
+              </button>
+            </div>
+          </div>
+        </nav>
+
+        <!-- Tool Panels Container -->
+        <div class="tab-content-area">
+          <!-- 1. EDIT EXISTING TEXT -->
+          <div id="tab-edit" class="tab-pane active">
+            <div class="pane-header">
+              <h3>Edit Existing Text</h3>
+              <p class="help-text">Click on any highlighted text block on the page to modify it in-place, or find &amp; replace across pages.</p>
+            </div>
+
+            <div class="form-group">
+              <label>Click-to-Edit Mode:</label>
+              <div class="toggle-group">
+                <button id="btnToggleInspect" class="btn btn-toggle active">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+                  Text Block Inspector: ON
+                </button>
+              </div>
+              <small class="hint">Hovering over text shows clickable blocks.</small>
+            </div>
+
+            <hr class="divider" />
+
+            <div class="accordion-item open">
+              <h4>Find &amp; Replace</h4>
+              <div class="form-group">
+                <label for="findText">Find Text:</label>
+                <input type="text" id="findText" placeholder="e.g. John Doe" class="form-control" />
+              </div>
+              <div class="form-group">
+                <label for="replaceText">Replace With:</label>
+                <input type="text" id="replaceText" placeholder="e.g. Jane Smith" class="form-control" />
+              </div>
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="replaceScope">Scope:</label>
+                  <select id="replaceScope" class="form-control">
+                    <option value="current">Current Page Only</option>
+                    <option value="all">Entire Document</option>
+                  </select>
+                </div>
+                <div class="form-group col">
+                  <label for="replaceFontSize">Font Size:</label>
+                  <input type="number" id="replaceFontSize" placeholder="Auto" class="form-control" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="replaceTextColor">Color:</label>
+                  <input type="color" id="replaceTextColor" value="#000000" class="form-control color-picker" />
+                </div>
+                <div class="form-group col">
+                  <label for="replaceBgColor">Background:</label>
+                  <input type="color" id="replaceBgColor" value="#ffffff" class="form-control color-picker" />
+                </div>
+              </div>
+              <button id="btnApplyFindReplace" class="btn btn-primary btn-block">
+                <span>Replace Text</span>
+              </button>
+            </div>
+
+            <!-- Active Selected Block Editor -->
+            <div id="blockEditorContainer" class="selected-block-card" style="display: none;">
+              <div class="block-header">
+                <strong>Selected Text Block</strong>
+                <button id="btnCloseBlockEdit" class="btn-close">&times;</button>
+              </div>
+              <div class="form-group">
+                <label>Text Content:</label>
+                <textarea id="blockEditText" rows="3" class="form-control"></textarea>
+              </div>
+              <div class="form-row">
+                <div class="form-group col">
+                  <label>Font Size:</label>
+                  <input type="number" id="blockEditSize" class="form-control" />
+                </div>
+                <div class="form-group col">
+                  <label>Text Color:</label>
+                  <input type="color" id="blockEditColor" value="#000000" class="form-control color-picker" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col">
+                  <label>Font Family:</label>
+                  <select id="blockEditFont" class="form-control">
+                    <option value="auto">Auto (Match Original)</option>
+                    <option value="helv">Helvetica / Arial (Sans)</option>
+                    <option value="times">Times New Roman (Serif)</option>
+                    <option value="couri">Courier (Mono)</option>
+                  </select>
+                </div>
+                <div class="form-group col">
+                  <label>Style & Align:</label>
+                  <div style="display: flex; gap: 4px;">
+                    <button type="button" id="btnBlockBold" class="btn btn-secondary btn-sm" style="flex: 1; font-weight: bold;" title="Bold">B</button>
+                    <button type="button" id="btnBlockItalic" class="btn btn-secondary btn-sm" style="flex: 1; font-style: italic;" title="Italic">I</button>
+                    <select id="blockEditAlign" class="form-control" style="flex: 1.2; padding: 2px 4px; font-size: 11px;">
+                      <option value="0">Left</option>
+                      <option value="1">Center</option>
+                      <option value="2">Right</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <button id="btnApplyBlockEdit" class="btn btn-success btn-block">
+                <span>Apply to Block</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. ADD TEXT -->
+          <div id="tab-add" class="tab-pane">
+            <div class="pane-header">
+              <h3>Add New Text</h3>
+              <p class="help-text">Click directly anywhere on the document canvas to type in-place with WYSIWYG formatting.</p>
+            </div>
+
+            <div class="interactive-tool-banner">
+              <div class="tool-banner-header">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                <span>Interactive Click-to-Type Active</span>
+              </div>
+              <p class="tool-banner-desc">
+                Click anywhere on the document to place a live text box, drag it to position, and save directly to PDF.
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label for="newTextContent">Default Text (or type directly on canvas):</label>
+              <textarea id="newTextContent" rows="2" placeholder="Type text here or click document..." class="form-control"></textarea>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="newTextFontSize">Font Size:</label>
+                <input type="number" id="newTextFontSize" value="14" class="form-control" />
+              </div>
+              <div class="form-group col">
+                <label for="newTextColor">Color:</label>
+                <input type="color" id="newTextColor" value="#000000" class="form-control color-picker" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="newTextFont">Font Family:</label>
+                <select id="newTextFont" class="form-control">
+                  <option value="helv">Helvetica / Arial</option>
+                  <option value="hebo">Helvetica Bold</option>
+                  <option value="times">Times New Roman</option>
+                  <option value="tibo">Times Bold</option>
+                  <option value="couri">Courier Monospace</option>
+                  <option value="cobo">Courier Bold</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="newTextWithBox" /> Add background fill box
+              </label>
+            </div>
+
+            <div id="newTextBoxOptions" style="display: none;">
+              <div class="form-group">
+                <label for="newTextBgColor">Box Background Color:</label>
+                <input type="color" id="newTextBgColor" value="#f8fafc" class="form-control color-picker" />
+              </div>
+            </div>
+
+            <details style="margin-top: 10px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <summary style="font-size: 11.5px; font-weight: 600; cursor: pointer; color: var(--text-dim);">Advanced: Specify Exact Coordinates</summary>
+              <div class="form-row" style="margin-top: 8px;">
+                <div class="form-group col">
+                  <label for="newTextX">X (pt):</label>
+                  <input type="number" id="newTextX" value="50" class="form-control" />
+                </div>
+                <div class="form-group col">
+                  <label for="newTextY">Y (pt):</label>
+                  <input type="number" id="newTextY" value="100" class="form-control" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="newTextWidth">Width (pt):</label>
+                  <input type="number" id="newTextWidth" placeholder="Auto" class="form-control" />
+                </div>
+                <div class="form-group col">
+                  <label for="newTextHeight">Height (pt):</label>
+                  <input type="number" id="newTextHeight" placeholder="Auto" class="form-control" />
+                </div>
+              </div>
+            </details>
+
+            <button id="btnAddTextSubmit" class="btn btn-primary btn-block">
+              <span>Insert Text at Coordinates</span>
+            </button>
+          </div>
+
+          <!-- 3. IMAGES & SIGNATURES -->
+          <div id="tab-image" class="tab-pane">
+            <div class="pane-header">
+              <h3>Insert Image / Signature</h3>
+              <p class="help-text">Drag-and-drop or paste images directly onto the document canvas, or choose an image file below.</p>
+            </div>
+
+            <div class="interactive-tool-banner">
+              <div class="tool-banner-header">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <span>Live Canvas Placement &amp; Transform</span>
+              </div>
+              <p class="tool-banner-desc">
+                Drop images directly on the PDF, paste with <code>Ctrl+V</code>, or click on any existing image to scale, rotate, replace, or delete.
+              </p>
+            </div>
+
+            <!-- Image Sidebar Dropzone & Paste Action -->
+            <div class="image-sidebar-dropzone" id="imageSidebarDropzone">
+              <input type="file" id="imagePlacementInput" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/svg+xml" class="image-file-hidden-input" />
+              <div class="dropzone-inner-content">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div class="dropzone-text">
+                  <strong>Click to browse</strong> or drag &amp; drop
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick Action: Clipboard Paste -->
+            <div style="margin-bottom: 12px;">
+              <button type="button" id="btnPasteFromClipboard" class="btn btn-outline btn-block btn-sm" title="Paste copied image from clipboard">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                <span>Paste from Clipboard</span>
+                <span class="cmd-badge">Ctrl+V</span>
+              </button>
+            </div>
+
+            <!-- Supported Format Chips -->
+            <div class="format-chips-container">
+              <span class="format-label">Supported:</span>
+              <span class="format-chip">PNG</span>
+              <span class="format-chip">JPG</span>
+              <span class="format-chip">WebP</span>
+              <span class="format-chip">GIF</span>
+              <span class="format-chip">BMP</span>
+              <span class="format-chip">TIFF</span>
+            </div>
+
+            <div id="imagePlacementPreview" class="image-upload-preview" style="display: none; margin-bottom: 12px;">
+              <img id="placedImagePreviewImg" alt="Image Preview" style="max-height: 120px; object-fit: contain; border-radius: 4px; width: 100%;" />
+              <div style="margin-top: 6px;">
+                <button type="button" id="btnPlaceImageOnCanvas" class="btn btn-success btn-sm btn-block">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span>Place on Document</span>
+                </button>
+              </div>
+            </div>
+
+            <details style="margin-top: 10px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <summary style="font-size: 11.5px; font-weight: 600; cursor: pointer; color: var(--text-dim);">Advanced: Specify Exact Coordinates</summary>
+              <div class="form-row" style="margin-top: 8px;">
+                <div class="form-group col">
+                  <label for="imgX0">X0:</label>
+                  <input type="number" id="imgX0" value="50" class="form-control" />
+                </div>
+                <div class="form-group col">
+                  <label for="imgY0">Y0:</label>
+                  <input type="number" id="imgY0" value="100" class="form-control" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="imgX1">X1:</label>
+                  <input type="number" id="imgX1" value="200" class="form-control" />
+                </div>
+                <div class="form-group col">
+                  <label for="imgY1">Y1:</label>
+                  <input type="number" id="imgY1" value="200" class="form-control" />
+                </div>
+              </div>
+            </details>
+
+            <button id="btnInsertImageSubmit" class="btn btn-primary btn-block">
+              <span>Insert Image at Coordinates</span>
+            </button>
+          </div>
+
+          <!-- 4. SHAPES & VECTORS -->
+          <div id="tab-shapes" class="tab-pane">
+            <div class="pane-header">
+              <h3>Draw Shapes</h3>
+              <p class="help-text">Click and drag on the document canvas to draw rectangles, circles, or lines.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="shapeType">Shape Type:</label>
+              <select id="shapeType" class="form-control">
+                <option value="rect">Rectangle / Box</option>
+                <option value="circle">Circle / Oval</option>
+                <option value="line">Straight Line</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="shapeColor">Border Color:</label>
+                <input type="color" id="shapeColor" value="#2563eb" class="form-control color-picker" />
+              </div>
+              <div class="form-group col">
+                <label for="shapeFill">Fill Color:</label>
+                <input type="color" id="shapeFill" value="#ffffff" class="form-control color-picker" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="shapeWidth">Border Width (px):</label>
+              <input type="number" id="shapeWidth" value="2" min="1" max="20" class="form-control" />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label>X1, Y1:</label>
+                <div style="display:flex; gap:4px;">
+                  <input type="number" id="shapeStartX" placeholder="X1" class="form-control" />
+                  <input type="number" id="shapeStartY" placeholder="Y1" class="form-control" />
+                </div>
+              </div>
+              <div class="form-group col">
+                <label>X2, Y2:</label>
+                <div style="display:flex; gap:4px;">
+                  <input type="number" id="shapeEndX" placeholder="X2" class="form-control" />
+                  <input type="number" id="shapeEndY" placeholder="Y2" class="form-control" />
+                </div>
+              </div>
+            </div>
+
+            <button id="btnApplyShape" class="btn btn-primary btn-block">
+              <span>Add Shape to Page</span>
+            </button>
+
+            <hr class="divider" />
+            <h4>Measurement Tools</h4>
+            <p class="help-text">Measure point-to-point distances, perimeters, and polygon areas with custom scale calibration.</p>
+            
+            <div class="button-grid">
+              <button id="btnMeasureDistance" class="btn btn-secondary measure-btn" data-mode="distance" title="Measure Distance / Ruler">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.3 15.3l-6.6-6.6a1 1 0 0 0-1.4 0l-1.6 1.6-1.4-1.4 1.4-1.4-1.4-1.4-1.4 1.4-1.4-1.4 1.4-1.4-1.4-1.4-1.6 1.6a1 1 0 0 0 0 1.4l6.6 6.6a1 1 0 0 0 1.4 0l8-8a1 1 0 0 0 0-1.4z"/></svg>
+                <span>Distance Ruler</span>
+              </button>
+              <button id="btnMeasureArea" class="btn btn-secondary measure-btn" data-mode="area" title="Measure Polygon Area &amp; Perimeter">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 22 22 22"/></svg>
+                <span>Area / Polygon</span>
+              </button>
+            </div>
+
+            <div class="form-row" style="margin-top: 8px;">
+              <div class="form-group col">
+                <label for="measureUnit">Unit:</label>
+                <select id="measureUnit" class="form-control">
+                  <option value="pt">Points (pt)</option>
+                  <option value="in" selected>Inches (in)</option>
+                  <option value="mm">Millimeters (mm)</option>
+                  <option value="cm">Centimeters (cm)</option>
+                  <option value="ft">Feet (ft)</option>
+                  <option value="m">Meters (m)</option>
+                </select>
+              </div>
+              <div class="form-group col">
+                <label for="measureScale">Scale (1 in = ?):</label>
+                <input type="number" id="measureScale" value="1.0" step="0.1" min="0.01" class="form-control" />
+              </div>
+            </div>
+
+            <div id="measureReadoutCard" class="measure-readout-card" style="display: none;">
+              <div class="readout-row">
+                <span>Mode:</span>
+                <strong id="measureModeLabel">Distance</strong>
+              </div>
+              <div class="readout-row">
+                <span>Measurement:</span>
+                <strong id="measureValueLabel" class="measure-val-highlight">0.00 in</strong>
+              </div>
+              <button id="btnCancelMeasure" class="btn btn-outline btn-block btn-sm" style="margin-top: 6px;">
+                <span>Cancel / Done (Esc)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 5. FORMS & ACROFORMS -->
+          <div id="tab-forms" class="tab-pane">
+            <div class="pane-header">
+              <h3>AcroForm Studio &amp; Builder</h3>
+              <p class="help-text">Click a field tool to place on the PDF, or edit &amp; fill existing fields.</p>
+            </div>
+
+            <!-- Quick Add Field Palette -->
+            <div class="form-palette-section">
+              <span class="palette-title">Add Form Field to PDF:</span>
+              <div class="field-palette-grid">
+                <button type="button" class="palette-field-btn" data-field-type="text" title="Single-line Text Field">
+                  <span class="palette-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></span>
+                  <span>Text Field</span>
+                </button>
+                <button type="button" class="palette-field-btn" data-field-type="textarea" title="Multi-line Text Area">
+                  <span class="palette-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+                  <span>Multi-line</span>
+                </button>
+                <button type="button" class="palette-field-btn" data-field-type="checkbox" title="Checkbox Toggle">
+                  <span class="palette-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="9 11 12 14 22 4"/></svg></span>
+                  <span>Checkbox</span>
+                </button>
+                <button type="button" class="palette-field-btn" data-field-type="combobox" title="Dropdown Selection List">
+                  <span class="palette-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m9 10 3 3 3-3"/></svg></span>
+                  <span>Dropdown</span>
+                </button>
+                <button type="button" class="palette-field-btn" data-field-type="radio" title="Radio Option">
+                  <span class="palette-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg></span>
+                  <span>Radio</span>
+                </button>
+                <button type="button" class="palette-field-btn" data-field-type="signature" title="Digital Signature Area">
+                  <span class="palette-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 5 4 4L7 21H3v-4L15 5z"/><path d="m18 8 2-2a2.828 2.828 0 1 0-4-4l-2 2"/></svg></span>
+                  <span>Signature</span>
+                </button>
+              </div>
+              <div id="formPlacementHint" class="placement-hint-banner" style="display: none;">
+                <span id="placementHintText"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px; vertical-align:text-bottom;"><circle cx="12" cy="12" r="10"/><path d="m12 8 4 4-4 4M8 12h8"/></svg>Click anywhere on PDF page to place field</span>
+                <button id="btnCancelPlacement" class="btn-text-cancel">Cancel</button>
+              </div>
+            </div>
+
+            <hr class="divider" />
+
+            <!-- Field Properties Inspector (shown when field selected) -->
+            <div id="fieldInspectorCard" class="field-inspector-card" style="display: none;">
+              <div class="inspector-header">
+                <h4 id="inspectorFieldTitle">Field Properties</h4>
+                <span id="inspectorFieldTypeBadge" class="field-type-badge">Text</span>
+              </div>
+
+              <div class="form-group">
+                <label for="propFieldName">Field Name / Key:</label>
+                <input type="text" id="propFieldName" class="form-control" />
+              </div>
+
+              <div class="form-group" id="propValueGroup">
+                <label for="propFieldValue">Value / Default:</label>
+                <input type="text" id="propFieldValue" class="form-control" />
+              </div>
+
+              <div class="form-group" id="propChoicesGroup" style="display: none;">
+                <label for="propFieldChoices">Options (comma-separated):</label>
+                <input type="text" id="propFieldChoices" placeholder="e.g. Option 1, Option 2, Option 3" class="form-control" />
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="propFieldFontSize">Font Size:</label>
+                  <select id="propFieldFontSize" class="form-control">
+                    <option value="9">9 pt</option>
+                    <option value="10">10 pt</option>
+                    <option value="11" selected>11 pt</option>
+                    <option value="12">12 pt</option>
+                    <option value="14">14 pt</option>
+                    <option value="16">16 pt</option>
+                    <option value="18">18 pt</option>
+                  </select>
+                </div>
+                <div class="form-group col" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="propFieldRequired" /> Required
+                  </label>
+                  <label class="checkbox-label" style="margin-top: 4px;">
+                    <input type="checkbox" id="propFieldReadOnly" /> Read-Only
+                  </label>
+                </div>
+              </div>
+
+              <div class="button-grid" style="margin-top: 10px;">
+                <button id="btnApplyFieldProps" class="btn btn-primary btn-sm">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span>Apply</span>
+                </button>
+                <button id="btnDeleteSelectedField" class="btn btn-danger btn-sm">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  <span>Delete</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Interactive Fields List -->
+            <div class="pane-section-header">
+              <h4>Fields in Document (<span id="formFieldsCount">0</span>)</h4>
+            </div>
+            <div id="formFieldsContainer" class="form-fields-list">
+              <div class="empty-state">No form fields found on this document. Click a field type above to create one!</div>
+            </div>
+
+            <div class="form-actions-grid" style="margin-top: 12px;">
+              <button id="btnSaveFormValues" class="btn btn-primary btn-block">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                <span>Save Form Values</span>
+              </button>
+
+              <div class="button-grid" style="margin-top: 8px;">
+                <button id="btnExportFormJson" class="btn btn-secondary btn-sm" title="Export form field data to JSON">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>Export JSON</span>
+                </button>
+                <button id="btnTriggerImportJson" class="btn btn-secondary btn-sm" title="Import form data from JSON">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <span>Import JSON</span>
+                </button>
+                <input type="file" id="importJsonFileInput" accept=".json" style="display: none;" />
+              </div>
+
+              <div class="button-grid" style="margin-top: 8px;">
+                <button id="btnClearFormValues" class="btn btn-secondary btn-sm" title="Clear all field entries">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l18 18M10.5 10.5l-6 6a2.121 2.121 0 0 0 3 3l6-6"/></svg>
+                  <span>Clear All</span>
+                </button>
+                <button id="btnFlattenForms" class="btn btn-secondary btn-sm" title="Bake forms permanently into static PDF">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  <span>Flatten Forms</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 6. PAGES & LAYOUT -->
+          <div id="tab-organize" class="tab-pane">
+            <div class="pane-header">
+              <h3>Page Tools &amp; Layout</h3>
+              <p class="help-text">Rotate, duplicate, delete, crop, or insert blank pages.</p>
+            </div>
+
+            <div class="button-grid">
+              <button id="btnRotateLeft" class="btn btn-secondary" title="Rotate 90° Counter-Clockwise">
+                <span>↶ Rotate Left</span>
+              </button>
+              <button id="btnRotateRight" class="btn btn-secondary" title="Rotate 90° Clockwise">
+                <span>↷ Rotate Right</span>
+              </button>
+            </div>
+
+            <div class="button-grid" style="margin-top: 8px;">
+              <button id="btnDuplicatePage" class="btn btn-secondary" title="Duplicate current page">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>Duplicate</span>
+              </button>
+              <button id="btnDeleteCurrentPage" class="btn btn-danger" title="Delete current page">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                <span>Delete</span>
+              </button>
+            </div>
+
+            <hr class="divider" />
+            <h4>Insert Blank Page</h4>
+            <div class="form-row">
+              <div class="form-group col">
+                <label>At Page #:</label>
+                <input type="number" id="insertBlankAt" value="1" min="1" class="form-control" />
+              </div>
+              <div class="form-group col">
+                <label>Page Size:</label>
+                <select id="insertBlankSize" class="form-control">
+                  <option value="a4">A4 Standard</option>
+                  <option value="letter">Letter</option>
+                  <option value="legal">Legal</option>
+                </select>
+              </div>
+            </div>
+            <button id="btnInsertBlankPageSubmit" class="btn btn-primary btn-block">
+              <span>Insert Blank Page</span>
+            </button>
+
+            <hr class="divider" />
+            <h4>Page Order Sequence</h4>
+            <p class="hint">Drag thumbnails in preview panel or type custom sequence below:</p>
+            <input type="text" id="customPageOrder" class="form-control" />
+            <button id="btnApplyPageOrder" class="btn btn-secondary btn-block" style="margin-top: 8px;">
+              Apply Page Order
+            </button>
+
+            <hr class="divider" />
+            <h4>Page Cropping &amp; Margin Trimming</h4>
+            <p class="help-text">Crop page margins or automatically trim whitespace borders.</p>
+
+            <button id="btnAutoTrimMargins" class="btn btn-secondary btn-block" title="Automatically trim whitespace around content">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+              <span>Auto-Trim Whitespace Margins</span>
+            </button>
+
+            <div class="form-group" style="margin-top: 10px;">
+              <label>Manual Crop Margins (pt):</label>
+              <div class="form-row">
+                <div class="form-group col">
+                  <input type="number" id="cropMarginLeft" placeholder="Left" class="form-control" />
+                </div>
+                <div class="form-group col">
+                  <input type="number" id="cropMarginTop" placeholder="Top" class="form-control" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col">
+                  <input type="number" id="cropMarginRight" placeholder="Right" class="form-control" />
+                </div>
+                <div class="form-group col">
+                  <input type="number" id="cropMarginBottom" placeholder="Bottom" class="form-control" />
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="cropAllPages" /> Apply crop to all pages
+              </label>
+            </div>
+
+            <div class="button-grid">
+              <button id="btnStartVisualCrop" class="btn btn-outline btn-sm">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+                <span>Drag Crop Box</span>
+              </button>
+              <button id="btnApplyManualCrop" class="btn btn-primary btn-sm">
+                <span>Apply Crop</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 7. PAGE NUMBERING -->
+          <div id="tab-page-numbers" class="tab-pane">
+            <div class="pane-header">
+              <h3>Page Numbering</h3>
+              <p class="help-text">Add customizable page numbers across headers or footers.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="pageNumberPosition">Position:</label>
+              <select id="pageNumberPosition" class="form-control">
+                <option value="bottom-center" selected>Bottom Center</option>
+                <option value="bottom-right">Bottom Right</option>
+                <option value="bottom-left">Bottom Left</option>
+                <option value="top-center">Top Center</option>
+                <option value="top-right">Top Right</option>
+                <option value="top-left">Top Left</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="pageNumberFormat">Format:</label>
+              <select id="pageNumberFormatPreset" class="form-control" onchange="document.getElementById('pageNumberFormat').value = this.value">
+                <option value="Page {n} of {total}" selected>Page {n} of {total} (e.g. Page 1 of 5)</option>
+                <option value="Page {n}">Page {n} (e.g. Page 1)</option>
+                <option value="{n}/{total}">{n}/{total} (e.g. 1/5)</option>
+                <option value="{n}">{n} (e.g. 1)</option>
+                <option value="- {n} -">- {n} -</option>
+              </select>
+              <input type="text" id="pageNumberFormat" value="Page {n} of {total}" class="form-control" style="margin-top: 6px;" />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="pageNumberStart">Start from Page:</label>
+                <input type="number" id="pageNumberStart" value="1" min="1" class="form-control" />
+              </div>
+              <div class="form-group col">
+                <label for="pageNumberFontSize">Font Size:</label>
+                <input type="number" id="pageNumberFontSize" value="10" min="6" max="24" class="form-control" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="pageNumberFont">Font:</label>
+                <select id="pageNumberFont" class="form-control">
+                  <option value="helv">Helvetica</option>
+                  <option value="times">Times Roman</option>
+                  <option value="couri">Courier</option>
+                </select>
+              </div>
+              <div class="form-group col">
+                <label for="pageNumberColor">Color:</label>
+                <input type="color" id="pageNumberColor" value="#333333" class="form-control color-picker" />
+              </div>
+            </div>
+
+            <button id="btnApplyPageNumbers" class="btn btn-primary btn-block">
+              <span>Apply Page Numbers</span>
+            </button>
+          </div>
+
+          <!-- 8. SPLIT & EXTRACT -->
+          <div id="tab-split" class="tab-pane">
+            <div class="pane-header">
+              <h3>Split &amp; Extract</h3>
+              <p class="help-text">Extract specific pages or burst all pages into individual files.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="splitRangeInput">Page Range(s):</label>
+              <input type="text" id="splitRangeInput" placeholder="e.g. 1-3, 5, 8-10" class="form-control" />
+              <small class="hint">Use commas and hyphens for page ranges.</small>
+            </div>
+
+            <button id="btnSplitRange" class="btn btn-primary btn-block">
+              <span>Extract Pages as New PDF</span>
+            </button>
+
+            <hr class="divider" />
+
+            <h4>Burst All Pages</h4>
+            <p class="help-text">Download each page as an individual PDF bundled inside a ZIP archive.</p>
+            <button id="btnBurstZip" class="btn btn-secondary btn-block">
+              <span>Burst to ZIP Archive</span>
+            </button>
+          </div>
+
+          <!-- 9. MERGE PDFS -->
+          <div id="tab-merge" class="tab-pane">
+            <div class="pane-header">
+              <h3>Merge Multiple PDFs</h3>
+              <p class="help-text">Combine multiple PDF files into one master document.</p>
+            </div>
+
+            <div class="form-group">
+              <label>Select PDF Files to Merge:</label>
+              <input type="file" id="mergeFileInput" accept="application/pdf" multiple class="form-control" />
+            </div>
+
+            <div id="mergeFileList" class="file-queue-list"></div>
+
+            <button id="btnExecuteMerge" class="btn btn-primary btn-block" style="margin-top: 10px;">
+              <span>Merge and Download</span>
+            </button>
+
+            <hr class="divider" />
+            <h4>Convert Images to PDF</h4>
+            <p class="help-text">Combine multiple JPG, PNG, or WebP images into a single PDF document.</p>
+            <div class="form-group">
+              <label>Select Image Files:</label>
+              <input type="file" id="imagesToPdfInput" accept="image/png,image/jpeg,image/webp,image/bmp" multiple class="form-control" />
+            </div>
+            <div id="imagesToPdfFileList" class="file-queue-list"></div>
+            <button id="btnConvertImagesToPdf" class="btn btn-primary btn-block" style="margin-top: 8px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              <span>Convert Images to PDF</span>
+            </button>
+          </div>
+
+          <!-- 10. REDACT -->
+          <div id="tab-redact" class="tab-pane">
+            <div class="pane-header">
+              <h3>True Redaction</h3>
+              <p class="help-text">Permanently purge text and graphics. Drag a box on preview to mark redactions.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="redactReason">Redaction Reason Stamp (Optional):</label>
+              <input type="text" id="redactReason" placeholder="e.g. CONFIDENTIAL / PII" class="form-control" />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="redactFillColor">Fill Color:</label>
+                <input type="color" id="redactFillColor" value="#000000" class="form-control color-picker" />
+              </div>
+              <div class="form-group col">
+                <label for="redactTextColor">Text Color:</label>
+                <input type="color" id="redactTextColor" value="#ffffff" class="form-control color-picker" />
+              </div>
+            </div>
+
+            <button id="btnApplyVisualRedact" class="btn btn-danger btn-block">
+              <span>Apply Redaction to Page</span>
+            </button>
+
+            <hr class="divider" />
+
+            <h4>Sanitize Entire Document</h4>
+            <p class="help-text">Strip hidden metadata, attachments, bookmarks, and external hyperlinks.</p>
+            <button id="btnSanitizeDoc" class="btn btn-danger btn-block">
+              <span>Sanitize Document</span>
+            </button>
+
+            <hr class="divider" />
+            <h4>Automated PII Scanner</h4>
+            <p class="help-text">Scan for sensitive data (SSNs, emails, phones, credit cards, dates, IPs) and redact in bulk.</p>
+            
+            <div class="pii-preset-grid">
+              <label class="checkbox-label"><input type="checkbox" id="piiOptEmail" checked /> Email</label>
+              <label class="checkbox-label"><input type="checkbox" id="piiOptSSN" checked /> SSN</label>
+              <label class="checkbox-label"><input type="checkbox" id="piiOptPhone" checked /> Phone</label>
+              <label class="checkbox-label"><input type="checkbox" id="piiOptCreditCard" checked /> Credit Card</label>
+              <label class="checkbox-label"><input type="checkbox" id="piiOptDate" checked /> Dates / DOB</label>
+              <label class="checkbox-label"><input type="checkbox" id="piiOptIP" checked /> IPv4</label>
+            </div>
+
+            <div class="form-group" style="margin-top: 8px;">
+              <label for="piiCustomRegex">Custom Regex Pattern (Optional):</label>
+              <input type="text" id="piiCustomRegex" placeholder="e.g. \b[A-Z]{2}\d{6}\b" class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label for="piiScanScope">Scan Scope:</label>
+              <select id="piiScanScope" class="form-control">
+                <option value="current">Current Page Only</option>
+                <option value="all">Entire Document</option>
+              </select>
+            </div>
+
+            <button id="btnScanPII" class="btn btn-secondary btn-block">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <span>Scan Document for PII</span>
+            </button>
+
+            <!-- PII Scan Results -->
+            <div id="piiResultsContainer" class="pii-results-box" style="display: none; margin-top: 10px;">
+              <div class="pii-results-header">
+                <strong id="piiResultsCount">Found 0 matches</strong>
+                <button id="btnSelectAllPII" class="btn-tiny">Toggle All</button>
+              </div>
+              <div id="piiMatchesList" class="pii-matches-list"></div>
+              <div class="form-group" style="margin-top: 8px;">
+                <label for="piiRedactLabel">Redaction Label:</label>
+                <input type="text" id="piiRedactLabel" value="[REDACTED]" class="form-control" />
+              </div>
+              <button id="btnAutoRedactSelected" class="btn btn-danger btn-block">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                <span>Redact Selected Matches</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 11. WATERMARK -->
+          <div id="tab-watermark" class="tab-pane">
+            <div class="pane-header">
+              <h3>Add Watermark</h3>
+              <p class="help-text">Stamp semi-transparent diagonal or horizontal text across pages.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="watermarkText">Watermark Text:</label>
+              <input type="text" id="watermarkText" value="CONFIDENTIAL" class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <label for="watermarkOpacity">Opacity:</label>
+                <span id="watermarkOpacityVal" class="badge">30%</span>
+              </div>
+              <input type="range" id="watermarkOpacity" min="5" max="100" value="30" class="range-slider" />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="watermarkAngle">Angle (°):</label>
+                <select id="watermarkAngle" class="form-control">
+                  <option value="45" selected>45° (Diagonal)</option>
+                  <option value="0">0° (Horizontal)</option>
+                  <option value="90">90° (Vertical)</option>
+                  <option value="-45">-45°</option>
+                </select>
+              </div>
+              <div class="form-group col">
+                <label for="watermarkSize">Font Size:</label>
+                <input type="number" id="watermarkSize" value="48" class="form-control" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="watermarkColor">Color:</label>
+                <input type="color" id="watermarkColor" value="#888888" class="form-control color-picker" />
+              </div>
+              <div class="form-group col">
+                <label for="watermarkScope">Pages:</label>
+                <select id="watermarkScope" class="form-control">
+                  <option value="all">All Pages</option>
+                  <option value="current">Current Page Only</option>
+                </select>
+              </div>
+            </div>
+
+            <button id="btnApplyWatermark" class="btn btn-primary btn-block">
+              <span>Apply Watermark</span>
+            </button>
+          </div>
+
+          <!-- 12. PASSWORD & ENCRYPTION -->
+          <div id="tab-protect" class="tab-pane">
+            <div class="pane-header">
+              <h3>Password Protection</h3>
+              <p class="help-text">Lock your PDF with industrial-strength AES-256 bit encryption.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="protectPassword">Set Document Password:</label>
+              <input type="password" id="protectPassword" placeholder="Enter secure password..." class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="permPrint" checked /> Allow Printing
+              </label>
+              <label class="checkbox-label" style="margin-top: 6px;">
+                <input type="checkbox" id="permCopy" checked /> Allow Content Copying
+              </label>
+              <label class="checkbox-label" style="margin-top: 6px;">
+                <input type="checkbox" id="permEdit" /> Allow Modifications
+              </label>
+            </div>
+
+            <button id="btnApplyPassword" class="btn btn-danger btn-block">
+              <span>Encrypt &amp; Protect Document</span>
+            </button>
+          </div>
+
+          <!-- 13. ANNOTATE (INK, STAMPS, NOTES) -->
+          <div id="tab-annotate" class="tab-pane">
+            <div class="pane-header">
+              <h3>Ink, Stamps &amp; Notes</h3>
+              <p class="help-text">Draw freehand paths, place official verification stamps, or drop sticky comments.</p>
+            </div>
+
+            <h4>Freehand Pencil &amp; Drawing</h4>
+            <div class="form-group">
+              <button id="btnToggleInk" class="btn btn-secondary btn-block">
+                <span>Freehand Mode: OFF</span>
+              </button>
+            </div>
+
+            <div id="inkControlsArea" style="display: none;">
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="inkColor">Color:</label>
+                  <input type="color" id="inkColor" value="#e11d48" class="form-control color-picker" />
+                </div>
+                <div class="form-group col">
+                  <label for="inkWidth">Stroke Width:</label>
+                  <input type="number" id="inkWidth" value="3" min="1" max="20" class="form-control" />
+                </div>
+              </div>
+
+              <div class="button-grid">
+                <button id="btnInkEraser" class="btn btn-outline" title="Toggle Eraser">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path><path d="M22 21H7"></path><path d="m5 11 9 9"></path></svg>
+                  <span>Eraser</span>
+                </button>
+                <button id="btnInkUndo" class="btn btn-outline" title="Undo last stroke">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+                  <span>Undo</span>
+                </button>
+              </div>
+
+              <button id="btnSaveInkStrokes" class="btn btn-success btn-block" style="margin-top: 8px;">
+                <span>Save Ink Drawing to PDF</span>
+              </button>
+            </div>
+
+            <hr class="divider" />
+
+            <h4>Preset Rubber Stamps</h4>
+            <div class="stamp-grid">
+              <button class="stamp-btn stamp-approved" data-stamp="APPROVED">APPROVED</button>
+              <button class="stamp-btn stamp-draft" data-stamp="DRAFT">DRAFT</button>
+              <button class="stamp-btn stamp-confidential" data-stamp="CONFIDENTIAL">CONFIDENTIAL</button>
+              <button class="stamp-btn stamp-rejected" data-stamp="REJECTED">REJECTED</button>
+            </div>
+            <p class="hint">Click a stamp above, then click anywhere on preview to place it.</p>
+
+            <hr class="divider" />
+
+            <h4>Sticky Notes &amp; Comments</h4>
+            <button id="btnStartStickyNotePlacement" class="btn btn-secondary btn-block">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              <span>Click to Place Sticky Note</span>
+            </button>
+
+            <hr class="divider" />
+            <h4>Text Markup &amp; Highlighting</h4>
+            <p class="help-text">Highlight, underline, strikeout, or squiggly underline text.</p>
+            
+            <div class="form-group">
+              <label>Markup Type:</label>
+              <div class="button-grid">
+                <button type="button" class="btn btn-outline markup-type-btn active" data-markup="highlight"><span class="markup-pill-indicator highlight"></span> Highlight</button>
+                <button type="button" class="btn btn-outline markup-type-btn" data-markup="underline"><span class="markup-pill-indicator underline"></span> Underline</button>
+                <button type="button" class="btn btn-outline markup-type-btn" data-markup="strikeout"><span class="markup-pill-indicator strikeout"></span> Strikeout</button>
+                <button type="button" class="btn btn-outline markup-type-btn" data-markup="squiggly"><span class="markup-pill-indicator squiggly"></span> Squiggly</button>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="markupColor">Color:</label>
+                <input type="color" id="markupColor" value="#fef08a" class="form-control color-picker" />
+              </div>
+              <div class="form-group col">
+                <label for="markupSearchText">Find &amp; Markup:</label>
+                <input type="text" id="markupSearchText" placeholder="Word or phrase..." class="form-control" />
+              </div>
+            </div>
+
+            <button id="btnApplyTextMarkup" class="btn btn-primary btn-block">
+              <span>Apply Text Markup</span>
+            </button>
+          </div>
+
+          <!-- 14. BOOKMARKS -->
+          <div id="tab-bookmarks" class="tab-pane">
+            <div class="pane-header">
+              <h3>Bookmarks &amp; Outline</h3>
+              <p class="help-text">Navigate and author document Table of Contents bookmarks.</p>
+            </div>
+
+            <div id="bookmarksTreeContainer" class="bookmarks-tree">
+              <div class="empty-state">No outline bookmarks found in this PDF.</div>
+            </div>
+
+            <hr class="divider" />
+
+            <h4>Add New Bookmark</h4>
+            <div class="form-group">
+              <label for="newBookmarkTitle">Bookmark Title:</label>
+              <input type="text" id="newBookmarkTitle" placeholder="e.g. Chapter 1" class="form-control" />
+            </div>
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="newBookmarkPage">Target Page #:</label>
+                <input type="number" id="newBookmarkPage" value="1" min="1" class="form-control" />
+              </div>
+              <div class="form-group col">
+                <label for="newBookmarkLevel">Level:</label>
+                <select id="newBookmarkLevel" class="form-control">
+                  <option value="1">1 (Top)</option>
+                  <option value="2">2 (Sub)</option>
+                  <option value="3">3 (Sub-sub)</option>
+                </select>
+              </div>
+            </div>
+            <button id="btnAddBookmark" class="btn btn-primary btn-block">
+              <span>Add Bookmark</span>
+            </button>
+          </div>
+
+          <!-- 15. EXTRACT DATA -->
+          <div id="tab-extract" class="tab-pane">
+            <div class="pane-header">
+              <h3>Extract Content</h3>
+              <p class="help-text">Export full document text or extract all embedded graphics.</p>
+            </div>
+
+            <button id="btnPreviewText" class="btn btn-secondary btn-block">
+              <span>Preview Extracted Text</span>
+            </button>
+
+            <button id="btnDownloadText" class="btn btn-outline btn-block" style="margin-top: 8px;">
+              <span>Download Text (.txt)</span>
+            </button>
+
+            <hr class="divider" />
+
+            <h4>Extract Embedded Images</h4>
+            <p class="help-text">Extract all embedded photos and graphics as a ZIP archive.</p>
+            <button id="btnExtractImages" class="btn btn-primary btn-block">
+              <span>Extract Images (.zip)</span>
+            </button>
+
+            <hr class="divider" />
+            <h4>Extract &amp; Detect Tables</h4>
+            <p class="help-text">Auto-detect tabular data on current page and export to CSV or Excel.</p>
+            <button id="btnDetectTables" class="btn btn-primary btn-block">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="12" y1="3" x2="12" y2="21"></line></svg>
+              <span>Detect Tables on Current Page</span>
+            </button>
+            <div id="tableDetectionResults" class="table-results-container" style="display: none; margin-top: 10px;">
+              <div class="table-summary-badge" id="tableSummaryBadge">Found 0 tables</div>
+              <div id="tablesList" class="tables-list"></div>
+            </div>
+
+            <hr class="divider" />
+            <h4>Export PDF as Images</h4>
+            <p class="help-text">Export each page as high-resolution PNG or JPG inside a ZIP archive.</p>
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="exportImageDpi">DPI Resolution:</label>
+                <select id="exportImageDpi" class="form-control">
+                  <option value="150" selected>150 DPI (Standard)</option>
+                  <option value="200">200 DPI (High)</option>
+                  <option value="300">300 DPI (Print Quality)</option>
+                  <option value="72">72 DPI (Web)</option>
+                </select>
+              </div>
+              <div class="form-group col">
+                <label for="exportImageFormat">Format:</label>
+                <select id="exportImageFormat" class="form-control">
+                  <option value="png" selected>PNG (Lossless)</option>
+                  <option value="jpeg">JPG (Compact)</option>
+                </select>
+              </div>
+            </div>
+            <button id="btnExportPdfImagesZip" class="btn btn-secondary btn-block">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Export All Pages as ZIP</span>
+            </button>
+          </div>
+
+          <!-- 16. SECURITY & AUDIT -->
+          <div id="tab-optimize" class="tab-pane">
+            <div class="pane-header">
+              <h3>Security &amp; Audit</h3>
+              <p class="help-text">Inspect encryption, permissions, compress PDF, and edit document metadata.</p>
+            </div>
+
+            <!-- Security Audit Card -->
+            <div class="audit-card" id="securityAuditCard">
+              <h4>Compliance &amp; Security Inspection</h4>
+              <div id="auditReportDetails" class="audit-details">Loading audit details...</div>
+            </div>
+
+            <hr class="divider" />
+            <h4>Document Metadata</h4>
+            <div class="form-group">
+              <label>Title:</label>
+              <input type="text" id="metaTitle" class="form-control" />
+            </div>
+            <div class="form-row">
+              <div class="form-group col">
+                <label>Author:</label>
+                <input type="text" id="metaAuthor" class="form-control" />
+              </div>
+              <div class="form-group col">
+                <label>Subject:</label>
+                <input type="text" id="metaSubject" class="form-control" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Keywords:</label>
+              <input type="text" id="metaKeywords" class="form-control" />
+            </div>
+            <button id="btnSaveMetadata" class="btn btn-secondary btn-block">
+              <span>Save Metadata</span>
+            </button>
+
+            <hr class="divider" />
+            <h4>Compress &amp; Optimize PDF</h4>
+            <p class="help-text">Deflates uncompressed streams and purges dead objects to reduce file size.</p>
+            <button id="btnCompressPdf" class="btn btn-primary btn-block">
+              <span>Compress PDF</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Viewer Area -->
+      <section class="viewer-container">
+        <!-- Floating Viewer Toolbar -->
+        <div class="viewer-toolbar">
+          <div class="page-controls">
+            <button id="btnToggleThumbnails" class="btn-icon" title="Toggle Thumbnails Sidebar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            </button>
+            <button id="btnPrevPage" class="btn-icon" title="Previous Page (Left Arrow / PageUp)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <span class="page-indicator">
+              Page <input type="number" id="pageNumberInput" value="1" min="1" /> of <span id="totalPagesSpan">1</span>
+            </span>
+            <button id="btnNextPage" class="btn-icon" title="Next Page (Right Arrow / PageDown)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+
+          <div class="zoom-controls">
+            <button id="btnZoomOut" class="btn-icon" title="Zoom Out (−)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+            </button>
+            <select id="zoomSelect" class="zoom-select" title="Zoom Level">
+              <option value="0.5">50%</option>
+              <option value="0.75">75%</option>
+              <option value="1.0" selected>100%</option>
+              <option value="1.25">125%</option>
+              <option value="1.5">150%</option>
+              <option value="2.0">200%</option>
+              <option value="fit-width">Fit Width</option>
+              <option value="fit-page">Fit Page</option>
+            </select>
+            <button id="btnZoomIn" class="btn-icon" title="Zoom In (+)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+            </button>
+            <button id="btnFitWidth" class="btn-icon" title="Fit to Width">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+            </button>
+          </div>
+
+          <div class="viewer-status">
+            <span id="canvasStatus" class="status-pill">Ready</span>
+            <div id="loadingSpinner" class="loading-spinner" style="display: none;"></div>
+          </div>
+        </div>
+
+        <!-- Floating Document Search Bar -->
+        <div id="floatingSearchBar" class="floating-search-bar" style="display: none;">
+          <div class="search-input-wrap">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="docSearchInput" placeholder="Find in document..." />
+          </div>
+          <span id="searchMatchCount" class="search-counter">0 of 0</span>
+          <button id="btnSearchPrev" class="btn-icon-tiny" title="Previous Match (Shift+Enter)">▲</button>
+          <button id="btnSearchNext" class="btn-icon-tiny" title="Next Match (Enter)">▼</button>
+          <button id="btnCloseSearch" class="btn-icon-tiny" title="Close (Esc)">&times;</button>
+        </div>
+
+        <!-- Canvas Viewport with Interactive Overlay -->
+        <div class="canvas-viewport" id="canvasViewport">
+          <div class="page-canvas-wrapper" id="pageCanvasWrapper">
+            <img id="pdfPageImage" alt="PDF Page Preview" class="pdf-image" />
+            
+            <!-- Interactive bounding box layer for text inspection, forms, click-to-add, search highlights -->
+            <div id="interactiveOverlay" class="interactive-overlay"></div>
+            
+            <!-- Freehand Drawing Canvas Layer -->
+            <canvas id="inkCanvas" class="ink-canvas" style="display: none;"></canvas>
+            
+            <!-- WYSIWYG Floating Formatting Toolbar -->
+            <div id="wysiwygToolbar" class="wysiwyg-toolbar" style="display: none;">
+              <select id="wysiwygFontFamily" class="toolbar-select">
+                <option value="helv">Helvetica</option>
+                <option value="times">Times Roman</option>
+                <option value="couri">Courier</option>
+              </select>
+              <input type="number" id="wysiwygFontSize" value="12" style="width: 52px;" min="6" max="72" class="toolbar-input" />
+              <input type="color" id="wysiwygColor" value="#000000" class="toolbar-color" />
+              <div class="toolbar-divider"></div>
+              <button class="toolbar-btn" id="wysiwygBold" title="Bold (Ctrl+B)"><b>B</b></button>
+              <button class="toolbar-btn" id="wysiwygItalic" title="Italic (Ctrl+I)"><i>I</i></button>
+              <button class="toolbar-btn" id="wysiwygUnderline" title="Underline (Ctrl+U)"><u>U</u></button>
+              <button class="toolbar-btn" id="wysiwygStrikethrough" title="Strikethrough"><s>S</s></button>
+              <div class="toolbar-divider"></div>
+              <button class="toolbar-btn" id="wysiwygAlignLeft" title="Align Left">⇤</button>
+              <button class="toolbar-btn" id="wysiwygAlignCenter" title="Align Center">⇥</button>
+              <div class="toolbar-divider"></div>
+              <button class="toolbar-btn text-success" id="wysiwygCommit" title="Save &amp; Commit (Ctrl+Enter)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </button>
+              <button class="toolbar-btn text-danger" id="wysiwygCancel" title="Cancel (Esc)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+      
+      <!-- Right Panel Resizer -->
+      <div id="rightPanelResizer" class="right-resizer" title="Drag to resize panel"></div>
+      
+      <!-- Page Preview Panel -->
+      <aside id="rightPreviewPanel" class="right-preview-panel">
+        <div class="preview-panel-header">
+          <div class="preview-panel-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+            <h4>Thumbnails</h4>
+          </div>
+          <div class="preview-actions">
+            <button id="btnThumbInsertBlank" class="panel-action-btn" title="Insert Blank Page" aria-label="Insert Blank Page">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="15" y2="15"></line>
+              </svg>
+            </button>
+            <button id="btnThumbDuplicate" class="panel-action-btn" title="Duplicate Page" aria-label="Duplicate Page">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="preview-list" id="previewList"></div>
+      </aside>
+    </section>
+  </main>
+
+  <!-- Thumbnail Context Menu -->
+  <div id="thumbnailContextMenu" class="context-menu" style="display: none;">
+    <div class="context-menu-item" id="ctxGoToPage">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+      <span>Go to Page</span>
+    </div>
+    <div class="context-menu-item" id="ctxDuplicatePage">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+      <span>Duplicate Page</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" id="ctxRotateCW">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+      <span>Rotate 90° Clockwise</span>
+    </div>
+    <div class="context-menu-item" id="ctxRotateCCW">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+      <span>Rotate 90° Counter-Clockwise</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" id="ctxInsertBlankBefore">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <span>Insert Blank Page Before</span>
+    </div>
+    <div class="context-menu-item" id="ctxInsertBlankAfter">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <span>Insert Blank Page After</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item danger" id="ctxDeletePage">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+      <span>Delete Page</span>
+    </div>
+  </div>
+
+  <!-- Command Palette Modal (Ctrl+K) -->
+  <div id="commandPaletteModal" class="modal">
+    <div class="modal-content modal-cmd">
+      <div class="cmd-input-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="cmdInput" placeholder="Type a command or tool name..." autofocus />
+        <span class="cmd-badge">ESC</span>
+      </div>
+      <div class="cmd-results" id="cmdResultsList"></div>
+    </div>
+  </div>
+
+  <!-- Generic Confirmation Modal -->
+  <div id="confirmModal" class="modal">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h3 id="confirmModalTitle">Confirm Action</h3>
+        <button class="modal-close" onclick="closeModal('confirmModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmModalMessage">Are you sure you want to proceed?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Cancel</button>
+        <button id="btnConfirmModalAction" class="btn btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Extracted Text Preview -->
+  <div id="textPreviewModal" class="modal">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>Extracted Document Text</h3>
+        <button class="modal-close" onclick="closeModal('textPreviewModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="modalTextContent" readonly class="text-preview-area"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('textPreviewModal')">Close</button>
+        <button id="btnModalCopyText" class="btn btn-primary">Copy to Clipboard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Table Detection & Export -->
+  <div id="tablePreviewModal" class="modal">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <h3 id="tableModalTitle">Extracted Table Preview</h3>
+        <button class="modal-close" onclick="closeModal('tablePreviewModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="table-modal-toolbar">
+          <div id="tableMetaBadge" class="badge badge-info">0 rows × 0 cols</div>
+          <div class="table-actions-group">
+            <button id="btnCopyTableCsv" class="btn btn-secondary btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span>Copy CSV</span>
+            </button>
+            <button id="btnDownloadTableCsv" class="btn btn-secondary btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Download CSV</span>
+            </button>
+            <button id="btnDownloadTableExcel" class="btn btn-primary btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              <span>Download Excel (.xlsx)</span>
+            </button>
+          </div>
+        </div>
+        <div class="table-matrix-container" id="tableMatrixContainer"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('tablePreviewModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Document Comparison -->
+  <div id="compareModal" class="modal">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <h3>Visual Document Comparison (Diff)</h3>
+        <button class="modal-close" onclick="closeModal('compareModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="compare-upload-section" id="compareUploadSection">
+          <p>Select a second PDF file to compare visually with the currently active document:</p>
+          <input type="file" id="compareFileInput" accept="application/pdf" class="form-control" style="margin-bottom: 10px;" />
+          <div class="form-row">
+            <div class="form-group col">
+              <label>Current Doc Page:</label>
+              <input type="number" id="comparePageA" value="1" min="1" class="form-control" />
+            </div>
+            <div class="form-group col">
+              <label>Compare Doc Page:</label>
+              <input type="number" id="comparePageB" value="1" min="1" class="form-control" />
+            </div>
+          </div>
+          <button id="btnRunComparison" class="btn btn-primary btn-block" style="margin-top: 10px;">
+            <span>Run Visual Comparison</span>
+          </button>
+        </div>
+
+        <div id="compareResultsSection" style="display: none; margin-top: 15px;">
+          <div class="compare-header-bar">
+            <div class="compare-score-badge" id="compareScoreBadge">Similarity: 100%</div>
+            <div class="compare-mode-toggle">
+              <button class="btn btn-outline btn-sm cmp-view-btn active" data-view="side-by-side">Side by Side</button>
+              <button class="btn btn-outline btn-sm cmp-view-btn" data-view="diff-only">Delta Diff Heatmap</button>
+            </div>
+          </div>
+
+          <div class="compare-view-container" id="compareViewContainer">
+            <div class="compare-side-wrap" id="cmpSideWrap">
+              <div class="cmp-column">
+                <h5>Document A (Current)</h5>
+                <div class="cmp-img-box"><img id="cmpImgA" alt="Doc A" /></div>
+              </div>
+              <div class="cmp-column">
+                <h5>Document B (Comparison)</h5>
+                <div class="cmp-img-box"><img id="cmpImgB" alt="Doc B" /></div>
+              </div>
+            </div>
+            <div class="compare-diff-wrap" id="cmpDiffWrap" style="display: none;">
+              <h5>Pixel Delta Heatmap (<span style="color:#ef4444;">Red: Removed</span> | <span style="color:#10b981;">Green: Added</span>)</h5>
+              <div class="cmp-img-box"><img id="cmpImgDiff" alt="Diff Overlay" /></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('compareModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js?v=2.9.1"></script>
+</body>
+</html>

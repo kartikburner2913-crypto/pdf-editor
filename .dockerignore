@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Dev/test files
+tests/
+scratch/
+scratch_*.py
+scratch_*.pdf
+scratch_*.txt
+*.xlsx
+test*.pdf
+test*.txt
+
+# Node
+node_modules/
+
+# Git
+.git/
+.gitignore
+
+# IDE / agents
+.agents/
+.pytest_cache/
+
+# Data (sessions are ephemeral anyway)
+data/sessions/

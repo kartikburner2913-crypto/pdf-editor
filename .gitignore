@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+
+# Data / sessions (ephemeral)
+data/sessions/
+
+# IDE
+.agents/
+.pytest_cache/
+
+# Test/scratch artifacts
+scratch_*.py
+scratch_*.pdf
+test*.pdf
+test*.txt
+*.xlsx
