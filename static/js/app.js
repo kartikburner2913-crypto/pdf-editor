@@ -481,20 +481,22 @@ function prefetchPageBundle(pageNumber) {
     .catch(() => {});
 }
 
-async function loadPage(pageNumber, _opts = {}) {
-  if (!state.docId) return;
-
+async function applyPageBundleDirectly(pageNumber, bundle) {
+  if (!state.docId || !bundle) return;
   state.currentPage = pageNumber;
   pageNumberInput.value = pageNumber;
   updateZoomSelectLabel();
 
+  // Cache this bundle in memory
   const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
-  const isCached = state.pageBundleCache && state.pageBundleCache.has(cacheKey);
-  if (!isCached) {
-    setLoading(true, `Loading Page ${pageNumber}...`);
+  if (state.pageBundleCache) {
+    if (state.pageBundleCache.size >= 10) {
+      const oldestKey = state.pageBundleCache.keys().next().value;
+      state.pageBundleCache.delete(oldestKey);
+    }
+    state.pageBundleCache.set(cacheKey, bundle);
   }
 
-  // Capture scroll position so it is always restored after re-render
   const viewport = document.getElementById("canvasViewport");
   const canvasWrapper = document.getElementById("pageCanvasWrapper");
   const savedScrollTop  = viewport ? viewport.scrollTop  : 0;
@@ -502,15 +504,12 @@ async function loadPage(pageNumber, _opts = {}) {
   const savedWinY = window.scrollY || document.documentElement.scrollTop || 0;
   const savedWinX = window.scrollX || document.documentElement.scrollLeft || 0;
 
-  // Lock canvas dimensions during image reloading so viewport scrollHeight never collapses
   if (canvasWrapper && pdfPageImage && pdfPageImage.offsetHeight > 0) {
     canvasWrapper.style.minHeight = `${pdfPageImage.offsetHeight}px`;
     canvasWrapper.style.minWidth = `${pdfPageImage.offsetWidth}px`;
   }
 
   try {
-    const bundle = await fetchPageBundle(pageNumber);
-
     pdfPageImage.src = bundle.image_data_url;
 
     await new Promise((resolve) => {
@@ -519,20 +518,17 @@ async function loadPage(pageNumber, _opts = {}) {
       pdfPageImage.onerror = () => resolve();
     });
 
-    // Release temporary min-dimension lock
     if (canvasWrapper) {
       canvasWrapper.style.minHeight = "";
       canvasWrapper.style.minWidth = "";
     }
 
-    // Extract PDF point dimensions
     state.pageWidthPt = bundle.width || (state.docInfo?.pages?.[pageNumber - 1]?.width) || 595;
     state.pageHeightPt = bundle.height || (state.docInfo?.pages?.[pageNumber - 1]?.height) || 842;
 
     cancelTransformBox();
     syncActiveThumbnail(pageNumber);
 
-    // Apply layout elements directly from single bundle response
     state.textBlocks = bundle.text_blocks || [];
     renderBlockHighlights();
 
@@ -545,7 +541,6 @@ async function loadPage(pageNumber, _opts = {}) {
     renderSearchHighlights();
     renderPiiHighlights();
 
-    // Immediately restore scroll position and reinforce in animation frame
     if (viewport) {
       viewport.scrollTop  = savedScrollTop;
       viewport.scrollLeft = savedScrollLeft;
@@ -561,7 +556,7 @@ async function loadPage(pageNumber, _opts = {}) {
     });
 
     if (state.activeTab === "tab-forms" || (state.formFields && state.formFields.length > 0)) {
-      await loadFormFields();
+      loadFormFields().catch(() => {});
     }
     if (state.isInkMode) syncInkCanvasSize();
 
@@ -572,7 +567,6 @@ async function loadPage(pageNumber, _opts = {}) {
     if (pageNumber > 1) {
       setTimeout(() => prefetchPageBundle(pageNumber - 1), 400);
     }
-
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -585,6 +579,49 @@ async function loadPage(pageNumber, _opts = {}) {
       viewport.scrollLeft = savedScrollLeft;
     }
     window.scrollTo(savedWinX, savedWinY);
+    setLoading(false);
+  }
+}
+
+async function applyMutationResponse(data, targetPage = state.currentPage) {
+  if (data && data.version !== undefined) {
+    state.docVersion = data.version;
+  } else {
+    state.docVersion = (state.docVersion || 1) + 1;
+  }
+  if (state.pageBundleCache) {
+    state.pageBundleCache.clear();
+  }
+  const canUndo = data && data.can_undo !== undefined ? data.can_undo : true;
+  const canRedo = data && data.can_redo !== undefined ? data.can_redo : false;
+  updateUndoRedoButtons(canUndo, canRedo);
+
+  if (data && data.info) {
+    state.docInfo = data.info;
+    state.totalPages = data.info.page_count || state.totalPages;
+  }
+
+  if (data && data.page_bundle && targetPage === state.currentPage) {
+    await applyPageBundleDirectly(targetPage, data.page_bundle);
+  } else {
+    await loadPage(targetPage || state.currentPage);
+  }
+}
+
+async function loadPage(pageNumber, _opts = {}) {
+  if (!state.docId) return;
+
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const isCached = state.pageBundleCache && state.pageBundleCache.has(cacheKey);
+  if (!isCached) {
+    setLoading(true, `Loading Page ${pageNumber}...`);
+  }
+
+  try {
+    const bundle = await fetchPageBundle(pageNumber);
+    await applyPageBundleDirectly(pageNumber, bundle);
+  } catch (err) {
+    showToast(err.message, "error");
     setLoading(false);
   }
 }
@@ -809,9 +846,9 @@ function renderBlockHighlights() {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.detail || "Failed to move text block");
         }
+        const data = await res.json();
         showToast(`Text block moved to (${newPtX0}, ${newPtY0})`, "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         if (blockMask) {
           blockMask.remove();
@@ -922,9 +959,9 @@ function renderAnnotationOverlays(pageNumber) {
               body: JSON.stringify({ page: state.currentPage, index: annot.index })
             });
             if (!res.ok) throw new Error("Failed to delete annotation");
+            const data = await res.json();
             showToast("Annotation removed!", "info");
-            updateUndoRedoButtons(true, false);
-            await loadPage(state.currentPage);
+            await applyMutationResponse(data, state.currentPage);
           } catch (err) {
             showToast(err.message, "error");
           } finally {
@@ -972,10 +1009,10 @@ function renderAnnotationOverlays(pageNumber) {
             const errData = await res.json().catch(() => ({}));
             throw new Error(errData.detail || "Failed to move annotation");
           }
+          const data = await res.json();
           annot.rect = newBbox;
           showToast(`Moved ${annot.type} annotation to (${newPtX0}, ${newPtY0})`, "info");
-          updateUndoRedoButtons(true, false);
-          await loadPage(state.currentPage);
+          await applyMutationResponse(data, state.currentPage);
         } catch (err) {
           if (annotMask) {
             annotMask.remove();
@@ -1215,13 +1252,12 @@ function setupViewerControls() {
       if (!state.docId) return;
       setLoading(true, "Undoing change...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/undo`, { method: "POST" });
+        const res = await fetch(`/api/document/${state.docId}/undo?page=${state.currentPage}&zoom=${state.zoom}`, { method: "POST" });
         if (!res.ok) throw new Error("Undo failed");
         const data = await res.json();
-        updateUndoRedoButtons(data.can_undo, data.can_redo);
         deselectFormField();
         showToast("Undone last change.", "info");
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
         await loadFormFields();
       } catch (err) {
         showToast(err.message, "error");
@@ -1236,13 +1272,12 @@ function setupViewerControls() {
       if (!state.docId) return;
       setLoading(true, "Redoing change...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/redo`, { method: "POST" });
+        const res = await fetch(`/api/document/${state.docId}/redo?page=${state.currentPage}&zoom=${state.zoom}`, { method: "POST" });
         if (!res.ok) throw new Error("Redo failed");
         const data = await res.json();
-        updateUndoRedoButtons(data.can_undo, data.can_redo);
         deselectFormField();
         showToast("Redone operation.", "info");
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
         await loadFormFields();
       } catch (err) {
         showToast(err.message, "error");
@@ -1496,6 +1531,7 @@ function makeDraggable(elem, handle, onMoveEnd, onMove, onMoveStart) {
     const viewport = document.getElementById("canvasViewport");
     const startScrollTop = viewport ? viewport.scrollTop : 0;
     const startScrollLeft = viewport ? viewport.scrollLeft : 0;
+    const overlayRect = overlay ? overlay.getBoundingClientRect() : { width: 595, height: 842 };
 
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
@@ -1504,6 +1540,10 @@ function makeDraggable(elem, handle, onMoveEnd, onMove, onMoveStart) {
     const elemStartW = elem.offsetWidth;
     const elemStartH = elem.offsetHeight;
     let hasStartedMoving = false;
+
+    let pendingRaf = null;
+    let lastNewX = elemStartX;
+    let lastNewY = elemStartY;
 
     function onMouseMove(moveEvent) {
       moveEvent.preventDefault();
@@ -1520,24 +1560,35 @@ function makeDraggable(elem, handle, onMoveEnd, onMove, onMoveStart) {
       let newX = elemStartX + dx;
       let newY = elemStartY + dy;
 
-      const curOverlayRect = overlay ? overlay.getBoundingClientRect() : { width: 595, height: 842 };
-      newX = Math.max(0, Math.min(newX, curOverlayRect.width - elem.offsetWidth));
-      newY = Math.max(0, Math.min(newY, curOverlayRect.height - elem.offsetHeight));
+      newX = Math.max(0, Math.min(newX, overlayRect.width - elemStartW));
+      newY = Math.max(0, Math.min(newY, overlayRect.height - elemStartH));
 
-      elem.style.left = `${newX}px`;
-      elem.style.top = `${newY}px`;
+      lastNewX = newX;
+      lastNewY = newY;
 
-      if (onMove) onMove(newX, newY, elem.offsetWidth, elem.offsetHeight);
+      if (!pendingRaf) {
+        pendingRaf = requestAnimationFrame(() => {
+          pendingRaf = null;
+          elem.style.left = `${lastNewX}px`;
+          elem.style.top = `${lastNewY}px`;
+          if (onMove) onMove(lastNewX, lastNewY, elemStartW, elemStartH);
+        });
+      }
     }
 
     function onMouseUp() {
+      if (pendingRaf) {
+        cancelAnimationFrame(pendingRaf);
+        pendingRaf = null;
+      }
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
 
+      elem.style.left = `${lastNewX}px`;
+      elem.style.top = `${lastNewY}px`;
+
       if (onMoveEnd) {
-        const finalX = parseFloat(elem.style.left) || 0;
-        const finalY = parseFloat(elem.style.top) || 0;
-        onMoveEnd(finalX, finalY, elem.offsetWidth, elem.offsetHeight, hasStartedMoving);
+        onMoveEnd(lastNewX, lastNewY, elemStartW, elemStartH, hasStartedMoving);
       }
     }
 
@@ -1556,7 +1607,7 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
       e.stopPropagation();
 
       const overlay = document.getElementById("interactiveOverlay");
-      const overlayRect = overlay.getBoundingClientRect();
+      const overlayRect = overlay ? overlay.getBoundingClientRect() : { width: 595, height: 842 };
 
       const startMouseX = e.clientX;
       const startMouseY = e.clientY;
@@ -1564,6 +1615,10 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
       const elemStartH = elem.offsetHeight;
       const elemStartX = parseFloat(elem.style.left) || 0;
       const elemStartY = parseFloat(elem.style.top) || 0;
+
+      let pendingRaf = null;
+      let lastW = elemStartW;
+      let lastH = elemStartH;
 
       function onMouseMove(moveEvent) {
         moveEvent.preventDefault();
@@ -1576,16 +1631,31 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
         newW = Math.min(newW, overlayRect.width - elemStartX);
         newH = Math.min(newH, overlayRect.height - elemStartY);
 
-        elem.style.width = `${newW}px`;
-        elem.style.height = `${newH}px`;
+        lastW = newW;
+        lastH = newH;
+
+        if (!pendingRaf) {
+          pendingRaf = requestAnimationFrame(() => {
+            pendingRaf = null;
+            elem.style.width = `${lastW}px`;
+            elem.style.height = `${lastH}px`;
+          });
+        }
       }
 
       function onMouseUp() {
+        if (pendingRaf) {
+          cancelAnimationFrame(pendingRaf);
+          pendingRaf = null;
+        }
         window.removeEventListener("mousemove", onMouseMove);
         window.removeEventListener("mouseup", onMouseUp);
 
+        elem.style.width = `${lastW}px`;
+        elem.style.height = `${lastH}px`;
+
         if (onResizeEnd) {
-          onResizeEnd(elemStartX, elemStartY, elem.offsetWidth, elem.offsetHeight);
+          onResizeEnd(elemStartX, elemStartY, lastW, lastH);
         }
       }
 
@@ -1607,7 +1677,7 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
       e.preventDefault();
 
       const overlay = document.getElementById("interactiveOverlay");
-      const overlayRect = overlay.getBoundingClientRect();
+      const overlayRect = overlay ? overlay.getBoundingClientRect() : { width: 595, height: 842 };
 
       const startMouseX = e.clientX;
       const startMouseY = e.clientY;
@@ -1615,6 +1685,12 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
       const startT = parseFloat(elem.style.top) || 0;
       const startW = elem.offsetWidth;
       const startH = elem.offsetHeight;
+
+      let pendingRaf = null;
+      let lastL = startL;
+      let lastT = startT;
+      let lastW = startW;
+      let lastH = startH;
 
       function onMouseMove(me) {
         me.preventDefault();
@@ -1664,22 +1740,38 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
           }
         }
 
-        elem.style.left = `${newL}px`;
-        elem.style.top = `${newT}px`;
-        elem.style.width = `${newW}px`;
-        elem.style.height = `${newH}px`;
+        lastL = newL;
+        lastT = newT;
+        lastW = newW;
+        lastH = newH;
 
-        if (onResize) onResize(newL, newT, newW, newH, dir);
+        if (!pendingRaf) {
+          pendingRaf = requestAnimationFrame(() => {
+            pendingRaf = null;
+            elem.style.left = `${lastL}px`;
+            elem.style.top = `${lastT}px`;
+            elem.style.width = `${lastW}px`;
+            elem.style.height = `${lastH}px`;
+            if (onResize) onResize(lastL, lastT, lastW, lastH, dir);
+          });
+        }
       }
 
       function onMouseUp() {
+        if (pendingRaf) {
+          cancelAnimationFrame(pendingRaf);
+          pendingRaf = null;
+        }
         window.removeEventListener("mousemove", onMouseMove);
         window.removeEventListener("mouseup", onMouseUp);
 
+        elem.style.left = `${lastL}px`;
+        elem.style.top = `${lastT}px`;
+        elem.style.width = `${lastW}px`;
+        elem.style.height = `${lastH}px`;
+
         if (onResizeEnd) {
-          const finalL = parseFloat(elem.style.left) || 0;
-          const finalT = parseFloat(elem.style.top) || 0;
-          onResizeEnd(finalL, finalT, elem.offsetWidth, elem.offsetHeight, dir);
+          onResizeEnd(lastL, lastT, lastW, lastH, dir);
         }
       }
 
@@ -1691,7 +1783,9 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
 
 function makeBoxDraggableAndSync(box, onSync) {
   let isBoxDragging = false;
-  let startMouseX, startMouseY, startLeft, startTop;
+  let startMouseX, startMouseY, startLeft, startTop, startW, startH;
+  let pendingRaf = null;
+  let lastLeft, lastTop;
 
   box.style.cursor = "move";
   box.addEventListener("mousedown", (e) => {
@@ -1702,9 +1796,13 @@ function makeBoxDraggableAndSync(box, onSync) {
     startMouseY = e.clientY;
     startLeft = parseFloat(box.style.left) || 0;
     startTop = parseFloat(box.style.top) || 0;
+    startW = box.offsetWidth;
+    startH = box.offsetHeight;
+    lastLeft = startLeft;
+    lastTop = startTop;
 
     const overlay = document.getElementById("interactiveOverlay");
-    const overlayRect = overlay.getBoundingClientRect();
+    const overlayRect = overlay ? overlay.getBoundingClientRect() : { width: 595, height: 842 };
 
     function onMouseMove(me) {
       if (!isBoxDragging) return;
@@ -1714,19 +1812,34 @@ function makeBoxDraggableAndSync(box, onSync) {
       let newLeft = startLeft + dx;
       let newTop = startTop + dy;
 
-      newLeft = Math.max(0, Math.min(newLeft, overlayRect.width - box.offsetWidth));
-      newTop = Math.max(0, Math.min(newTop, overlayRect.height - box.offsetHeight));
+      newLeft = Math.max(0, Math.min(newLeft, overlayRect.width - startW));
+      newTop = Math.max(0, Math.min(newTop, overlayRect.height - startH));
 
-      box.style.left = `${newLeft}px`;
-      box.style.top = `${newTop}px`;
+      lastLeft = newLeft;
+      lastTop = newTop;
 
-      if (onSync) onSync(newLeft, newTop, box.offsetWidth, box.offsetHeight);
+      if (!pendingRaf) {
+        pendingRaf = requestAnimationFrame(() => {
+          pendingRaf = null;
+          box.style.left = `${lastLeft}px`;
+          box.style.top = `${lastTop}px`;
+          if (onSync) onSync(lastLeft, lastTop, startW, startH);
+        });
+      }
     }
 
     function onMouseUp() {
+      if (pendingRaf) {
+        cancelAnimationFrame(pendingRaf);
+        pendingRaf = null;
+      }
       isBoxDragging = false;
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+
+      box.style.left = `${lastLeft}px`;
+      box.style.top = `${lastTop}px`;
+      if (onSync) onSync(lastLeft, lastTop, startW, startH);
     }
 
     window.addEventListener("mousemove", onMouseMove);
@@ -2044,12 +2157,11 @@ async function executeLayerOrder({ page, elementType, action, elementId, bbox, t
     }
     const data = await res.json();
     showToast(data.message || "Layer order updated successfully!", "success");
-    updateUndoRedoButtons(true, false);
     if (activeTransformBox) {
       activeTransformBox.remove();
       activeTransformBox = null;
     }
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -2483,6 +2595,7 @@ function initLiveTextTransformBox(options = {}) {
     setLoading(true, mode === "edit" ? "Updating text in PDF..." : "Placing new text on PDF...");
 
     try {
+      let mutationData = null;
       if (mode === "add") {
         const hasBox = document.getElementById("newTextWithBox")?.checked;
         const bgCol = hasBox ? hexToRgb(document.getElementById("newTextBgColor")?.value || "#ffffff") : null;
@@ -2505,6 +2618,7 @@ function initLiveTextTransformBox(options = {}) {
           })
         });
         if (!res.ok) throw new Error("Failed to add text");
+        mutationData = await res.json();
         const sbInput = document.getElementById("newTextContent");
         if (sbInput) sbInput.value = "";
         showToast("Text added successfully!", "success");
@@ -2551,11 +2665,11 @@ function initLiveTextTransformBox(options = {}) {
           })
         });
         if (!res.ok) throw new Error("Failed to edit text block");
+        mutationData = await res.json();
         showToast("Text block updated successfully!", "success");
       }
 
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
+      await applyMutationResponse(mutationData, state.currentPage);
 
       // Auto-highlight newly placed or updated text block on canvas
       setTimeout(() => {
@@ -2604,9 +2718,9 @@ function initLiveTextTransformBox(options = {}) {
             })
           });
           if (!res.ok) throw new Error("Failed to delete text block");
+          const delData = await res.json();
           showToast("Text block deleted!", "success");
-          updateUndoRedoButtons(true, false);
-          await loadPage(state.currentPage);
+          await applyMutationResponse(delData, state.currentPage);
         } catch (err) {
           showToast(err.message, "error");
         } finally {
@@ -3000,9 +3114,9 @@ function initLiveImageTransformBox(options = {}) {
           body: formData
         });
         if (!res.ok) throw new Error("Failed to place image");
+        const data = await res.json();
         showToast("Image placed successfully!", "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
 
         // Highlight placed image
         setTimeout(() => {
@@ -3065,9 +3179,9 @@ function initLiveImageTransformBox(options = {}) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.detail || "Failed to update image");
         }
+        const data = await res.json();
         showToast(currentFileObj ? "Image replaced successfully!" : "Image position updated!", "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         cancelTransformBox(false);
         showToast(err.message, "error");
@@ -3094,9 +3208,9 @@ function initLiveImageTransformBox(options = {}) {
             })
           });
           if (!res.ok) throw new Error("Failed to delete image");
+          const data = await res.json();
           showToast("Image removed successfully!", "success");
-          updateUndoRedoButtons(true, false);
-          await loadPage(state.currentPage);
+          await applyMutationResponse(data, state.currentPage);
         } catch (err) {
           cancelTransformBox(false);
           showToast(err.message, "error");
@@ -3429,9 +3543,9 @@ function setupToolActions() {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to add text");
+      const data = await res.json();
       showToast("Text added successfully!", "success");
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
+      await applyMutationResponse(data, state.currentPage);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -3538,11 +3652,11 @@ function setupToolActions() {
         body: formData
       });
       if (!res.ok) throw new Error("Failed to place image");
+      const data = await res.json();
       showToast("Image placed successfully!", "success");
       imagePlacementInput.value = "";
       imagePlacementPreview.style.display = "none";
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
+      await applyMutationResponse(data, state.currentPage);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -3593,10 +3707,10 @@ function setupToolActions() {
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error("Failed to add shape");
+        const data = await res.json();
         showToast("Shape added!", "success");
         document.querySelectorAll(".shape-preview-box").forEach(b => b.remove());
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -4171,13 +4285,13 @@ function setupToolActions() {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to save ink");
+      const data = await res.json();
       showToast("Ink drawing saved to PDF!", "success");
       state.inkStrokes = [];
       const ctx = inkCanvas.getContext("2d");
       ctx.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
       toggleInkMode(false);
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
+      await applyMutationResponse(data, state.currentPage);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -4381,9 +4495,9 @@ async function handleStickyNotePlacement(e) {
       })
     });
     if (!res.ok) throw new Error("Failed to add note");
+    const data = await res.json();
     showToast("Sticky note pinned!", "success");
-    updateUndoRedoButtons(true, false);
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -4422,12 +4536,12 @@ async function handleStampPlacement(e) {
       })
     });
     if (!res.ok) throw new Error("Failed to place stamp");
+    const data = await res.json();
     showToast("Stamp placed!", "success");
     state.activeStamp = null;
     document.querySelectorAll(".stamp-btn").forEach(b => b.classList.remove("selected"));
     interactiveOverlay.style.cursor = "default";
-    updateUndoRedoButtons(true, false);
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -4493,10 +4607,10 @@ async function handleFormPlacement(e) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || "Failed to add form field");
     }
+    const data = await res.json();
     showToast(`Form field '${defaultName}' added! Customize properties in sidebar.`, "success");
     cancelFormPlacement();
-    updateUndoRedoButtons(true, false);
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
     await loadFormFields();
 
     const created = (state.formFields || []).find(f => f.name === defaultName && f.page === state.currentPage);
@@ -4629,9 +4743,9 @@ async function applyFieldProps() {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || "Failed to update form field");
     }
+    const data = await res.json();
     showToast(`Updated field '${newName}'!`, "success");
-    updateUndoRedoButtons(true, false);
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
     await loadFormFields();
 
     const updated = (state.formFields || []).find(f => f.name === newName);
@@ -4664,10 +4778,10 @@ async function deleteSelectedField() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || "Failed to delete form field");
       }
+      const data = await res.json();
       showToast(`Field '${fieldToDelete.name}' deleted!`, "success");
       deselectFormField();
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
+      await applyMutationResponse(data, state.currentPage);
       await loadFormFields();
     } catch (err) {
       showToast(err.message, "error");
@@ -4925,9 +5039,9 @@ function renderFormOverlays(pageNumber) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.detail || "Failed to update field position");
         }
+        const data = await res.json();
         showToast(`Moved field '${field.name}' to (${newPtX0}, ${newPtY0})`, "info");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         console.error("Move field error:", err);
         showToast(err.message, "error");
@@ -4958,9 +5072,9 @@ function renderFormOverlays(pageNumber) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.detail || "Failed to resize field");
         }
+        const data = await res.json();
         showToast(`Resized field '${field.name}' to ${newPtW}×${newPtH} pt`, "info");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         console.error("Resize field error:", err);
         showToast(err.message, "error");
@@ -5524,8 +5638,7 @@ async function submitEditText(payload) {
     showToast(data.message || "Text updated!", "success");
     blockEditorContainer.style.display = "none";
     state.selectedBlock = null;
-    updateUndoRedoButtons(true, false);
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
   } finally {

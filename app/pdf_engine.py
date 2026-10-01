@@ -163,10 +163,10 @@ class PDFEngine:
             width_pt = round(rect.width, 2)
             height_pt = round(rect.height, 2)
             
-            # 2. Render image to high-efficiency data URL (JPEG 92% for 4x smaller payload and instant loading)
+            # 2. Render image to high-efficiency data URL (JPEG 86% for lightweight payload and instant cloud transfer)
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False)
-            img_bytes = pix.tobytes("jpeg", jpg_quality=92)
+            img_bytes = pix.tobytes("jpeg", jpg_quality=86)
             img_b64 = base64.b64encode(img_bytes).decode("ascii")
             image_data_url = f"data:image/jpeg;base64,{img_b64}"
             

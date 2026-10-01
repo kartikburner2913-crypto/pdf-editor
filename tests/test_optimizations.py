@@ -95,3 +95,97 @@ class TestOptimizations:
         assert len(blocks) >= 1
         # First block should be the top-most header due to linear vertical sweep sorting
         assert "Header on Page 1" in blocks[0]["text"]
+
+    def test_mutation_returns_page_bundle_and_version(self):
+        pdf_bytes = create_sample_doc(num_pages=2)
+        upload_res = client.post(
+            "/api/upload",
+            files={"file": ("mutation_test.pdf", pdf_bytes, "application/pdf")}
+        )
+        assert upload_res.status_code == 200
+        doc_id = upload_res.json()["doc_id"]
+
+        # Call edit-text
+        edit_res = client.post(
+            f"/api/document/{doc_id}/edit-text",
+            json={
+                "edits": [{
+                    "page": 1,
+                    "bbox": [50, 50, 300, 70],
+                    "new_text": "Updated Super Fast Header",
+                    "font_size": 14
+                }]
+            }
+        )
+        assert edit_res.status_code == 200
+        data = edit_res.json()
+        assert data["status"] == "success"
+        assert "version" in data
+        assert data["version"] == 1
+        assert "page_bundle" in data
+        assert data["page_bundle"]["image_data_url"].startswith("data:image/jpeg;base64,")
+        assert "info" in data
+        assert data["can_undo"] is True
+
+        # Test undo returns page bundle
+        undo_res = client.post(f"/api/document/{doc_id}/undo")
+        assert undo_res.status_code == 200
+        undo_data = undo_res.json()
+        assert undo_data["status"] == "success"
+        assert undo_data["version"] == 0
+        assert "page_bundle" in undo_data
+        assert undo_data["can_undo"] is False
+        assert undo_data["can_redo"] is True
+
+        # Test redo returns page bundle
+        redo_res = client.post(f"/api/document/{doc_id}/redo")
+        assert redo_res.status_code == 200
+        redo_data = redo_res.json()
+        assert redo_data["status"] == "success"
+        assert redo_data["version"] == 1
+        assert "page_bundle" in redo_data
+        assert redo_data["can_undo"] is True
+        assert redo_data["can_redo"] is False
+
+    def test_add_shape_and_ink_mutation_bundle(self):
+        pdf_bytes = create_sample_doc(num_pages=1)
+        upload_res = client.post(
+            "/api/upload",
+            files={"file": ("shape_ink_test.pdf", pdf_bytes, "application/pdf")}
+        )
+        doc_id = upload_res.json()["doc_id"]
+
+        # Add shape
+        shape_res = client.post(
+            f"/api/document/{doc_id}/add-shape",
+            json={
+                "shapes": [{
+                    "page": 1,
+                    "type": "rectangle",
+                    "bbox": [100, 100, 200, 200],
+                    "color": [1, 0, 0],
+                    "width": 2
+                }]
+            }
+        )
+        assert shape_res.status_code == 200
+        shape_data = shape_res.json()
+        assert "page_bundle" in shape_data
+        assert shape_data["version"] == 1
+
+        # Add ink
+        ink_res = client.post(
+            f"/api/document/{doc_id}/add-ink",
+            json={
+                "drawings": [{
+                    "page": 1,
+                    "paths": [[[50, 50], [60, 60], [70, 70]]],
+                    "color": [0, 0, 1],
+                    "width": 3
+                }]
+            }
+        )
+        assert ink_res.status_code == 200
+        ink_data = ink_res.json()
+        assert "page_bundle" in ink_data
+        assert ink_data["version"] == 2

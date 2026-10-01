@@ -9,6 +9,7 @@ import io
 import time
 import uuid
 import shutil
+import threading
 from typing import List, Dict, Any, Optional, Union
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, Response
@@ -65,20 +66,73 @@ def save_doc_bytes(doc_id: str, version: int, content: bytes):
     with open(v_path, "wb") as f:
         f.write(content)
 
-def save_new_version(doc_id: str, new_pdf: bytes):
+def _async_save_doc(doc_id: str, version: int, content: bytes, truncate_from: int, truncate_to: int):
+    for v in range(truncate_from, truncate_to + 1):
+        try:
+            p = os.path.join(DATA_DIR, doc_id, f"v{v}.pdf")
+            if os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            pass
+    save_doc_bytes(doc_id, version, content)
+
+def save_new_version(doc_id: str, new_pdf: bytes, sync_disk: bool = False) -> int:
     doc = DOC_STORE[doc_id]
     next_v = doc["current_version"] + 1
-    # Truncate any redo history beyond current version
     max_v = doc.get("max_version", doc["current_version"])
-    for v in range(next_v, max_v + 1):
-        try:
-            os.remove(os.path.join(DATA_DIR, doc_id, f"v{v}.pdf"))
-        except:
-            pass
-    save_doc_bytes(doc_id, next_v, new_pdf)
+    
     doc["current_version"] = next_v
     doc["max_version"] = next_v
     doc["current_bytes"] = new_pdf
+    doc["updated_at"] = time.time()
+    
+    if sync_disk:
+        _async_save_doc(doc_id, next_v, new_pdf, next_v, max_v)
+    else:
+        threading.Thread(
+            target=_async_save_doc,
+            args=(doc_id, next_v, new_pdf, next_v, max_v),
+            daemon=True
+        ).start()
+    return next_v
+
+def save_and_bundle(
+    doc_id: str,
+    new_pdf: bytes,
+    page_num: int = 1,
+    zoom: float = 1.5,
+    message: str = "Success",
+    extra: Optional[Dict[str, Any]] = None,
+    include_info: bool = True
+) -> Dict[str, Any]:
+    next_v = save_new_version(doc_id, new_pdf)
+    doc_entry = DOC_STORE.get(doc_id)
+    can_undo = (doc_entry["current_version"] > 0) if doc_entry else True
+    can_redo = (doc_entry["current_version"] < doc_entry["max_version"]) if doc_entry else False
+    res: Dict[str, Any] = {
+        "status": "success",
+        "message": message,
+        "version": next_v,
+        "can_undo": can_undo,
+        "can_redo": can_redo
+    }
+    if include_info:
+        try:
+            res["info"] = PDFEngine.get_document_info(new_pdf)
+        except Exception:
+            pass
+            
+    if page_num and page_num > 0:
+        try:
+            bundle = PDFEngine.get_page_bundle(new_pdf, page_num, zoom=zoom)
+            bundle["version"] = next_v
+            res["page_bundle"] = bundle
+        except Exception:
+            pass
+            
+    if extra:
+        res.update(extra)
+    return res
 
 def prune_store():
     """Prune expired sessions from memory and purge their physical directories from disk."""
@@ -570,9 +624,8 @@ async def edit_text(doc_id: str, req: EditTextRequest):
     try:
         edits_data = [item.model_dump() for item in req.edits]
         new_pdf = PDFEngine.edit_text(doc["current_bytes"], edits_data)
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Text edited successfully.", "info": info}
+        target_page = req.edits[0].page if req.edits and req.edits[0].page > 0 else 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Text edited successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error editing text: {str(e)}")
 
@@ -584,9 +637,8 @@ async def add_text(doc_id: str, req: AddTextRequest):
     try:
         annotations_data = [item.model_dump() for item in req.annotations]
         new_pdf = PDFEngine.add_text_annotations(doc["current_bytes"], annotations_data)
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Text added successfully.", "info": info}
+        target_page = req.annotations[0].page if req.annotations else 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Text added successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding text: {str(e)}")
 
@@ -608,9 +660,7 @@ async def move_text_block(doc_id: str, req: MoveTextBlockRequest):
             color=req.color,
             bg_color=req.bg_color
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Text block moved successfully.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Text block moved successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error moving text block: {str(e)}")
 
@@ -638,9 +688,7 @@ async def move_annotation(doc_id: str, req: MoveAnnotationRequest):
             annot_index=req.index,
             new_bbox=req.bbox
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Annotation moved successfully.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Annotation moved successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error moving annotation: {str(e)}")
 
@@ -655,9 +703,7 @@ async def delete_annotation(doc_id: str, req: DeleteAnnotationRequest):
             page_num=req.page,
             annot_index=req.index
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Annotation deleted successfully.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Annotation deleted successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting annotation: {str(e)}")
 
@@ -669,9 +715,8 @@ async def add_shape(doc_id: str, req: AddShapeRequest):
     try:
         shapes_data = [item.model_dump() for item in req.shapes]
         new_pdf = PDFEngine.add_shape_annotations(doc["current_bytes"], shapes_data)
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Shapes added successfully.", "info": info}
+        target_page = req.shapes[0].page if req.shapes else 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Shapes added successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding shape: {str(e)}")
 
@@ -983,7 +1028,7 @@ async def protect_pdf(doc_id: str, req: ProtectRequest):
 
 
 @app.post("/api/document/{doc_id}/undo")
-async def undo_last_change(doc_id: str):
+async def undo_last_change(doc_id: str, page: Optional[int] = Query(1), zoom: float = Query(1.5)):
     """Undo the last edit operation (non-destructive, preserves redo history)."""
     doc = get_doc(doc_id)
     if doc["current_version"] > 0:
@@ -991,15 +1036,28 @@ async def undo_last_change(doc_id: str):
         current_bytes = get_doc_bytes(doc_id, doc["current_version"])
         doc["current_bytes"] = current_bytes
         info = PDFEngine.get_document_info(current_bytes)
-        return {"status": "success", "message": "Undone successfully.", "info": info,
-                "can_undo": doc["current_version"] > 0,
-                "can_redo": doc["current_version"] < doc.get("max_version", 0)}
+        res = {
+            "status": "success",
+            "message": "Undone successfully.",
+            "info": info,
+            "version": doc["current_version"],
+            "can_undo": doc["current_version"] > 0,
+            "can_redo": doc["current_version"] < doc.get("max_version", 0)
+        }
+        if page and page > 0:
+            try:
+                bundle = PDFEngine.get_page_bundle(current_bytes, page, zoom=zoom)
+                bundle["version"] = doc["current_version"]
+                res["page_bundle"] = bundle
+            except Exception:
+                pass
+        return res
     else:
         raise HTTPException(status_code=400, detail="No previous state to undo.")
 
 
 @app.post("/api/document/{doc_id}/redo")
-async def redo_change(doc_id: str):
+async def redo_change(doc_id: str, page: Optional[int] = Query(1), zoom: float = Query(1.5)):
     """Redo a previously undone operation."""
     doc = get_doc(doc_id)
     max_v = doc.get("max_version", doc["current_version"])
@@ -1008,9 +1066,22 @@ async def redo_change(doc_id: str):
         current_bytes = get_doc_bytes(doc_id, doc["current_version"])
         doc["current_bytes"] = current_bytes
         info = PDFEngine.get_document_info(current_bytes)
-        return {"status": "success", "message": "Redone successfully.", "info": info,
-                "can_undo": doc["current_version"] > 0,
-                "can_redo": doc["current_version"] < max_v}
+        res = {
+            "status": "success",
+            "message": "Redone successfully.",
+            "info": info,
+            "version": doc["current_version"],
+            "can_undo": doc["current_version"] > 0,
+            "can_redo": doc["current_version"] < max_v
+        }
+        if page and page > 0:
+            try:
+                bundle = PDFEngine.get_page_bundle(current_bytes, page, zoom=zoom)
+                bundle["version"] = doc["current_version"]
+                res["page_bundle"] = bundle
+            except Exception:
+                pass
+        return res
     else:
         raise HTTPException(status_code=400, detail="Nothing to redo.")
 
@@ -1101,9 +1172,7 @@ async def add_form_field(doc_id: str, req: AddFormFieldRequest):
             border_color=req.border_color,
             fill_color=req.fill_color
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"Form field '{req.name}' added successfully.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message=f"Form field '{req.name}' added successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding form field: {str(e)}")
 
@@ -1125,9 +1194,7 @@ async def update_form_field(doc_id: str, req: UpdateFormFieldRequest):
             is_required=req.is_required,
             is_read_only=req.is_read_only
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"Form field '{req.field_name}' updated successfully.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message=f"Form field '{req.field_name}' updated successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating form field: {str(e)}")
 
@@ -1142,9 +1209,7 @@ async def delete_form_field(doc_id: str, req: DeleteFormFieldRequest):
             page_num=req.page,
             field_name=req.field_name
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"Form field '{req.field_name}' deleted.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message=f"Form field '{req.field_name}' deleted.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting form field: {str(e)}")
 
@@ -1161,9 +1226,7 @@ async def move_form_field(doc_id: str, req: MoveFormFieldRequest):
             field_name=req.name,
             new_bbox=req.bbox
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"Form field '{req.name}' moved successfully.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message=f"Form field '{req.name}' moved successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error moving form field: {str(e)}")
 
@@ -1297,8 +1360,7 @@ async def insert_image(
             flip_h=flip_h,
             flip_v=flip_v
         )
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Image placed successfully."}
+        return save_and_bundle(doc_id, new_pdf, page_num=page, message="Image placed successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error placing image: {str(e)}")
 
@@ -1338,8 +1400,7 @@ async def delete_image(doc_id: str, req: DeleteImageRequest):
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.delete_image_by_bbox(doc["current_bytes"], req.page, req.bbox or [], xref=req.xref)
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Image removed."}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Image removed.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error removing image: {str(e)}")
 
@@ -1360,8 +1421,7 @@ async def move_image(doc_id: str, req: MoveImageRequest):
             flip_h=bool(req.flip_h),
             flip_v=bool(req.flip_v)
         )
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Image updated successfully."}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Image updated successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error moving image: {str(e)}")
 
@@ -1398,8 +1458,7 @@ async def replace_image(
             flip_v=flip_v,
             new_image_bytes=new_img_bytes
         )
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Image replaced successfully."}
+        return save_and_bundle(doc_id, new_pdf, page_num=page, message="Image replaced successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error replacing image: {str(e)}")
 
@@ -1421,9 +1480,7 @@ async def reorder_layer(doc_id: str, req: LayerOrderRequest):
             font_name=req.font_name,
             color=req.color
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"Layer updated ({req.action.replace('_', ' ')}).", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message=f"Layer updated ({req.action.replace('_', ' ')}).")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating layer order: {str(e)}")
 
@@ -1437,8 +1494,8 @@ async def add_ink(doc_id: str, req: InkRequest):
     try:
         items = [item.model_dump() for item in req.drawings]
         new_pdf = PDFEngine.add_ink_annotations(doc["current_bytes"], items)
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Drawing saved successfully."}
+        target_page = req.drawings[0].page if req.drawings else 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Drawing saved successfully.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1457,8 +1514,7 @@ async def add_stamp(doc_id: str, req: StampRequest):
             stamp_text=req.text,
             color=req.color
         )
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": f"Stamp '{req.text}' added."}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message=f"Stamp '{req.text}' added.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding stamp: {str(e)}")
 
@@ -1476,8 +1532,7 @@ async def add_sticky_note(doc_id: str, req: StickyNoteRequest):
             content=req.content,
             author=req.author or "User"
         )
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Sticky note added."}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Sticky note added.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding note: {str(e)}")
 
