@@ -3,6 +3,7 @@
    ========================================================================== */
 
 :root {
+  color-scheme: light;
   /* Color Palette - Modern Neutral Zinc/Slate */
   --bg-main: #f8fafc;
   --bg-surface: #ffffff;
@@ -54,6 +55,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg-main: #0b0f19;
   --bg-surface: #111827;
   --bg-sidebar: #0f172a;
@@ -430,12 +432,51 @@ body {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+select.form-control,
+select {
+  cursor: pointer;
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+}
+
+select option,
+select optgroup,
+.form-control option,
+.toolbar-select option,
+.zoom-select option,
+.tb-font-select option {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  padding: 4px 8px;
+}
+
+[data-theme="dark"] select,
+[data-theme="dark"] select.form-control,
+[data-theme="dark"] .form-control select,
+[data-theme="dark"] .toolbar-select,
+[data-theme="dark"] .tb-font-select {
+  background-color: #1e293b;
+  color: #f8fafc;
+  border-color: #334155;
+}
+
+[data-theme="dark"] select option,
+[data-theme="dark"] select optgroup,
+[data-theme="dark"] .form-control option,
+[data-theme="dark"] .toolbar-select option,
+[data-theme="dark"] .zoom-select option,
+[data-theme="dark"] .tb-font-select option {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
 .form-row {
   display: flex;
   gap: 8px;
 }
 .form-row .col {
   flex: 1;
+  min-width: 0;
 }
 
 .range-slider {
@@ -444,10 +485,35 @@ body {
   cursor: pointer;
 }
 
+input[type="color"].form-control,
 .color-picker {
   height: 34px;
   padding: 2px 4px;
   cursor: pointer;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease;
+}
+
+[data-theme="dark"] input[type="color"].form-control,
+[data-theme="dark"] .color-picker {
+  background-color: #1e293b;
+  border-color: #334155;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 1px;
+  border-radius: var(--radius-xs);
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+}
+
+[data-theme="dark"] input[type="color"]::-webkit-color-swatch {
+  border-color: #334155;
 }
 
 .checkbox-label {
@@ -927,6 +993,15 @@ body {
   border-radius: var(--radius-sm);
   padding: 2px 4px;
   box-shadow: var(--shadow-xs);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+[data-theme="dark"] .page-controls,
+[data-theme="dark"] .zoom-controls {
+  background: #111827;
+  border-color: #1e293b;
 }
 
 .page-indicator {
@@ -940,7 +1015,7 @@ body {
 }
 
 .page-indicator input {
-  width: 40px;
+  width: 42px;
   padding: 2px 4px;
   font-size: 12px;
   font-weight: 600;
@@ -951,15 +1026,38 @@ body {
   color: var(--text-main);
 }
 
+[data-theme="dark"] .page-indicator input {
+  background: #1e293b;
+  color: #f8fafc;
+  border-color: #334155;
+}
+
 .zoom-select {
   padding: 3px 6px;
   font-size: 12px;
   font-weight: 600;
-  background: transparent;
-  border: none;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
   color: var(--text-main);
   cursor: pointer;
   outline: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.zoom-select:hover {
+  border-color: var(--border-hover);
+}
+
+.zoom-select:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+[data-theme="dark"] .zoom-select {
+  background-color: #1e293b;
+  color: #f8fafc;
+  border-color: #334155;
 }
 
 .status-pill {
@@ -3812,6 +3910,16 @@ textarea.form-overlay-widget {
 .pii-badge-key_value { background: rgba(14, 165, 233, 0.15); color: #0284c7; }
 .pii-badge-keyword { background: rgba(168, 85, 247, 0.15); color: #9333ea; }
 .pii-badge-custom_regex { background: rgba(100, 116, 139, 0.15); color: #475569; }
+
+[data-theme="dark"] .pii-badge-email { background: rgba(59, 130, 246, 0.25); color: #60a5fa; }
+[data-theme="dark"] .pii-badge-ssn { background: rgba(239, 68, 68, 0.25); color: #f87171; }
+[data-theme="dark"] .pii-badge-credit_card { background: rgba(245, 158, 11, 0.25); color: #fbbf24; }
+[data-theme="dark"] .pii-badge-phone { background: rgba(16, 185, 129, 0.25); color: #34d399; }
+[data-theme="dark"] .pii-badge-iban { background: rgba(139, 92, 246, 0.25); color: #a78bfa; }
+[data-theme="dark"] .pii-badge-secrets { background: rgba(225, 29, 72, 0.25); color: #fb7185; }
+[data-theme="dark"] .pii-badge-key_value { background: rgba(14, 165, 233, 0.25); color: #38bdf8; }
+[data-theme="dark"] .pii-badge-keyword { background: rgba(168, 85, 247, 0.25); color: #c084fc; }
+[data-theme="dark"] .pii-badge-custom_regex { background: rgba(148, 163, 184, 0.25); color: #cbd5e1; }
 
 .pii-text-val {
   flex: 1;
