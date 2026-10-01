@@ -37,8 +37,14 @@ DATA_DIR = os.path.join(BASE_DIR, "data", "sessions")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
+class CachedStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        return response
+
 if os.path.exists(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", CachedStaticFiles(directory=STATIC_DIR), name="static")
 
 # In-memory document storage: doc_id -> { "filename": str, "current_version": int, "max_version": int, "updated_at": float }
 DOC_STORE: Dict[str, Dict[str, Any]] = {}
