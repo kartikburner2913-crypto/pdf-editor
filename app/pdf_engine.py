@@ -9,68 +9,10 @@ import os
 import zipfile
 from typing import List, Dict, Any, Optional, Tuple, Union
 import pymupdf as fitz
-from PIL import Image
 
 class PDFEngine:
     """Core PDF manipulation engine utilizing PyMuPDF."""
 
-    @staticmethod
-    def _is_scanned_page(page: fitz.Page) -> bool:
-        """Determine if a page is raster-based by checking native text volume."""
-        text = page.get_text().strip()
-        return len(text) < 25
-
-    @staticmethod
-    def _run_rapidocr_pipeline(page: fitz.Page) -> Dict[str, Any]:
-        """Run RapidOCR on a scanned page and format the output like PyMuPDF get_text('dict')."""
-        try:
-            from rapidocr_onnxruntime import RapidOCR
-            ocr = RapidOCR()
-            
-            # Render to 300 DPI image
-            zoom = 300 / 72
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat)
-            if pix.n == 4:  # RGBA
-                pil_img = Image.frombytes("RGBA", (pix.w, pix.h), pix.samples).convert("RGB")
-            elif pix.n == 1:  # Grayscale
-                pil_img = Image.frombytes("L", (pix.w, pix.h), pix.samples).convert("RGB")
-            else:  # RGB
-                pil_img = Image.frombytes("RGB", (pix.w, pix.h), pix.samples)
-                
-            result, _ = ocr(pil_img)
-            
-            blocks = []
-            if result:
-                for idx, res in enumerate(result):
-                    box, text, score = res
-                    # box is [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
-                    # Convert to [x0, y0, x1, y1] and scale back to 72 DPI
-                    x0 = min(p[0] for p in box) / zoom
-                    y0 = min(p[1] for p in box) / zoom
-                    x1 = max(p[0] for p in box) / zoom
-                    y1 = max(p[1] for p in box) / zoom
-                    
-                    blocks.append({
-                        "type": 0,
-                        "bbox": [x0, y0, x1, y1],
-                        "lines": [{
-                            "bbox": [x0, y0, x1, y1],
-                            "spans": [{
-                                "bbox": [x0, y0, x1, y1],
-                                "text": text,
-                                "size": (y1 - y0) * 0.75,
-                                "font": "helv",
-                                "color": 0,
-                                "flags": 0,
-                                "origin": [x0, y1 - ((y1 - y0) * 0.15)]
-                            }]
-                        }]
-                    })
-            return {"blocks": blocks}
-        except Exception as e:
-            # Fallback to empty if OCR fails
-            return {"blocks": []}
 
     @staticmethod
     def get_document_info(pdf_bytes: bytes) -> Dict[str, Any]:
@@ -228,10 +170,7 @@ class PDFEngine:
             page_idx = max(0, min(page_number - 1, len(doc) - 1))
             page = doc[page_idx]
             
-            if PDFEngine._is_scanned_page(page):
-                text_dict = PDFEngine._run_rapidocr_pipeline(page)
-            else:
-                text_dict = page.get_text("dict")
+            text_dict = page.get_text("dict")
                 
             blocks_result = []
             block_counter = 0
@@ -506,13 +445,8 @@ class PDFEngine:
                                         if b not in overlapping_neighbors:
                                             overlapping_neighbors.append(b)
 
-                    # Check if scanned
-                    is_scanned = PDFEngine._is_scanned_page(page)
-                    if is_scanned:
-                        overlapping_neighbors = [] # Clear vector neighbors for scans
-                        
                     # 1. Cleanly remove old text without leaving opaque redaction rectangles or wiping line art/images
-                    fill_c = bg_color if bg_color else ([1, 1, 1] if is_scanned else None)
+                    fill_c = bg_color if bg_color else None
                     if lines_data and isinstance(lines_data, list) and len(lines_data) > 0:
                         for l in lines_data:
                             if "bbox" in l and len(l["bbox"]) == 4:
@@ -528,8 +462,7 @@ class PDFEngine:
                         page.add_redact_annot(fitz.Rect(nb[0] - 1.0, nb[1] - 1.0, nb[2] + 1.5, nb[3] + 1.5), fill=None)
                     
                     if replacements or lines_data or overlapping_neighbors:
-                        img_redact = fitz.PDF_REDACT_IMAGE_PIXELS if is_scanned else fitz.PDF_REDACT_IMAGE_NONE
-                        page.apply_redactions(images=img_redact, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+                        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
                         # 2. Re-insert preserved overlapping neighbors cleanly at their original bboxes
                         for n in overlapping_neighbors:

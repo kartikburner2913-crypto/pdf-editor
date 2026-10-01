@@ -1,15 +1,6 @@
 # -- Base image: slim Python 3.11 ----------------------------------------------
 FROM python:3.11-slim
 
-# -- System dependencies (OpenCV + build tools) --------------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6 \
-    && rm -rf /var/lib/apt/lists/*
-
 # -- Create a non-root user (required by Hugging Face Spaces) ------------------
 RUN useradd -m -u 1000 user
 USER user
