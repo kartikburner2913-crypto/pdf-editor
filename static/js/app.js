@@ -452,7 +452,13 @@ async function fetchPageBundle(pageNumber) {
   const res = await fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`);
   if (!res.ok) throw new Error(`Failed to load page ${pageNumber} bundle`);
   const bundle = await res.json();
-  if (state.pageBundleCache) state.pageBundleCache.set(cacheKey, bundle);
+  if (state.pageBundleCache) {
+    if (state.pageBundleCache.size >= 10) {
+      const oldestKey = state.pageBundleCache.keys().next().value;
+      state.pageBundleCache.delete(oldestKey);
+    }
+    state.pageBundleCache.set(cacheKey, bundle);
+  }
   return bundle;
 }
 
@@ -464,7 +470,13 @@ function prefetchPageBundle(pageNumber) {
   fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`)
     .then(res => res.ok ? res.json() : null)
     .then(bundle => {
-      if (bundle && state.pageBundleCache) state.pageBundleCache.set(cacheKey, bundle);
+      if (bundle && state.pageBundleCache) {
+        if (state.pageBundleCache.size >= 10) {
+          const oldestKey = state.pageBundleCache.keys().next().value;
+          state.pageBundleCache.delete(oldestKey);
+        }
+        state.pageBundleCache.set(cacheKey, bundle);
+      }
     })
     .catch(() => {});
 }
@@ -5115,7 +5127,7 @@ function populateThumbnails() {
     const img = document.createElement("img");
     img.className = "thumbnail-image";
     img.loading = "lazy";
-    const thumbUrl = `/api/document/${state.docId}/page/${i}/image?zoom=0.18&v=${state.docVersion || 1}`;
+    const thumbUrl = `/api/document/${state.docId}/page/${i}/image?zoom=0.18&format=jpeg&v=${state.docVersion || 1}`;
 
     if (thumbnailObserver) {
       if (i <= 4) {

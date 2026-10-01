@@ -8,6 +8,7 @@ import os
 import io
 import time
 import uuid
+import shutil
 from typing import List, Dict, Any, Optional, Union
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, Response
@@ -38,9 +39,10 @@ os.makedirs(DATA_DIR, exist_ok=True)
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# In-memory document storage: doc_id -> { "current_bytes": bytes, "original_bytes": bytes, "filename": str, "history": list, "updated_at": float }
+# In-memory document storage: doc_id -> { "filename": str, "current_version": int, "max_version": int, "updated_at": float }
 DOC_STORE: Dict[str, Dict[str, Any]] = {}
 MAX_STORE_ITEMS = 50
+SESSION_TTL_SECONDS = 7200  # 2 hours idle TTL
 
 
 def get_doc_bytes(doc_id: str, version: int = None) -> bytes:
@@ -52,7 +54,7 @@ def get_doc_bytes(doc_id: str, version: int = None) -> bytes:
     if os.path.exists(v_path):
         with open(v_path, "rb") as f:
             return f.read()
-    if "current_bytes" in doc:
+    if "current_bytes" in doc and doc["current_bytes"]:
         return doc["current_bytes"]
     raise HTTPException(status_code=404, detail=f"Version {v} not found on disk")
 
@@ -79,12 +81,33 @@ def save_new_version(doc_id: str, new_pdf: bytes):
     doc["current_bytes"] = new_pdf
 
 def prune_store():
-    """Prune documents older than 4 hours or if exceeding max capacity."""
+    """Prune expired sessions from memory and purge their physical directories from disk."""
     now = time.time()
+    # 1. Clean expired sessions based on TTL
+    expired_keys = [k for k, v in DOC_STORE.items() if (now - v.get("updated_at", 0)) > SESSION_TTL_SECONDS]
+    for k in expired_keys:
+        DOC_STORE.pop(k, None)
+        doc_dir = os.path.join(DATA_DIR, k)
+        shutil.rmtree(doc_dir, ignore_errors=True)
+
+    # 2. Enforce capacity limit
     if len(DOC_STORE) > MAX_STORE_ITEMS:
         oldest_keys = sorted(DOC_STORE.keys(), key=lambda k: DOC_STORE[k].get("updated_at", 0))
-        for k in oldest_keys[:10]:
+        for k in oldest_keys[:max(1, len(DOC_STORE) - MAX_STORE_ITEMS + 5)]:
             DOC_STORE.pop(k, None)
+            doc_dir = os.path.join(DATA_DIR, k)
+            shutil.rmtree(doc_dir, ignore_errors=True)
+
+    # 3. Clean orphaned disk directories older than TTL
+    try:
+        if os.path.exists(DATA_DIR):
+            for entry in os.scandir(DATA_DIR):
+                if entry.is_dir() and entry.name not in DOC_STORE:
+                    stat = entry.stat()
+                    if (now - stat.st_mtime) > SESSION_TTL_SECONDS:
+                        shutil.rmtree(entry.path, ignore_errors=True)
+    except Exception:
+        pass
 
 
 def get_doc(doc_id: str) -> Dict[str, Any]:
@@ -95,6 +118,7 @@ def get_doc(doc_id: str) -> Dict[str, Any]:
     if "current_bytes" not in doc or not doc["current_bytes"]:
         doc["current_bytes"] = get_doc_bytes(doc_id)
     return doc
+
 
 
 # Pydantic schemas
@@ -498,15 +522,26 @@ def get_page_bundle(doc_id: str, page_number: int, zoom: float = Query(1.5, ge=0
 
 
 @app.get("/api/document/{doc_id}/page/{page_number}/image")
-def get_page_image(doc_id: str, page_number: int, zoom: float = Query(1.5, ge=0.1, le=5.0)):
-    """Render a page to PNG for interactive browser viewing with cache headers."""
+def get_page_image(
+    doc_id: str,
+    page_number: int,
+    zoom: float = Query(1.5, ge=0.05, le=5.0),
+    format: Optional[str] = Query(None)
+):
+    """Render a page to image bytes (high-efficiency JPEG for thumbnails or PNG for full resolution)."""
     doc = get_doc(doc_id)
     try:
-        png_bytes = PDFEngine.render_page_image(doc["current_bytes"], page_number, zoom=zoom)
+        use_jpeg = (format in ("jpeg", "jpg")) or (format is None and zoom <= 0.5)
+        img_format = "jpeg" if use_jpeg else (format or "png")
+        img_bytes = PDFEngine.render_page_image(doc["current_bytes"], page_number, zoom=zoom, format=img_format)
+        media_type = "image/jpeg" if use_jpeg else "image/png"
         return Response(
-            content=png_bytes,
-            media_type="image/png",
-            headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"}
+            content=img_bytes,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+                "Vary": "Accept-Encoding"
+            }
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

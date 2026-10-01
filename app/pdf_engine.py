@@ -163,12 +163,12 @@ class PDFEngine:
             width_pt = round(rect.width, 2)
             height_pt = round(rect.height, 2)
             
-            # 2. Render image to PNG data URL
+            # 2. Render image to high-efficiency data URL (JPEG 92% for 4x smaller payload and instant loading)
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False)
-            img_bytes = pix.tobytes("png")
+            img_bytes = pix.tobytes("jpeg", jpg_quality=92)
             img_b64 = base64.b64encode(img_bytes).decode("ascii")
-            image_data_url = f"data:image/png;base64,{img_b64}"
+            image_data_url = f"data:image/jpeg;base64,{img_b64}"
             
             # 3. Extract text blocks (using the cohesive clustering engine)
             text_dict = page.get_text("dict")
@@ -196,6 +196,9 @@ class PDFEngine:
                     
                     if not valid_lines:
                         continue
+                    
+                    # Sort lines top-to-bottom, left-to-right for linear sweep clustering
+                    valid_lines.sort(key=lambda l: (round(l["bbox"][1], 1), round(l["bbox"][0], 1)))
                     
                     clusters = []
                     current_cluster = [valid_lines[0]]
@@ -337,8 +340,8 @@ class PDFEngine:
             doc.close()
 
     @staticmethod
-    def render_page_image(pdf_bytes: bytes, page_number: int, zoom: float = 1.5) -> bytes:
-        """Render a single page to PNG bytes for browser preview."""
+    def render_page_image(pdf_bytes: bytes, page_number: int, zoom: float = 1.5, format: str = "png") -> bytes:
+        """Render a single page to image bytes (PNG, JPEG, or WebP)."""
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         try:
             if not (1 <= page_number <= len(doc)):
@@ -347,7 +350,13 @@ class PDFEngine:
             page = doc[page_idx]
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False)
-            return pix.tobytes("png")
+            norm_fmt = (format or "png").lower().strip()
+            if norm_fmt in ("jpeg", "jpg"):
+                return pix.tobytes("jpeg", jpg_quality=85)
+            elif norm_fmt == "webp":
+                return pix.tobytes("webp", webp_quality=88)
+            else:
+                return pix.tobytes("png")
         finally:
             doc.close()
 
@@ -389,6 +398,9 @@ class PDFEngine:
                     
                     if not valid_lines:
                         continue
+                    
+                    # Sort lines top-to-bottom, left-to-right for linear sweep clustering
+                    valid_lines.sort(key=lambda l: (round(l["bbox"][1], 1), round(l["bbox"][0], 1)))
                     
                     # Segment lines into cohesive clusters to isolate collisions & distinct text boxes
                     clusters = []
