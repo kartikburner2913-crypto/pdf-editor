@@ -440,8 +440,10 @@ function updateUndoRedoButtons(canUndo, canRedo) {
 }
 
 // ==========================================================================
-// High-Speed Page Loading, Bundling & Caching
+// High-Speed Page Loading, Bundling & Caching (Hardware-Decoded)
 // ==========================================================================
+
+const MAX_BUNDLE_CACHE_SIZE = 25;
 
 async function fetchPageBundle(pageNumber) {
   const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
@@ -453,7 +455,7 @@ async function fetchPageBundle(pageNumber) {
   if (!res.ok) throw new Error(`Failed to load page ${pageNumber} bundle`);
   const bundle = await res.json();
   if (state.pageBundleCache) {
-    if (state.pageBundleCache.size >= 10) {
+    if (state.pageBundleCache.size >= MAX_BUNDLE_CACHE_SIZE) {
       const oldestKey = state.pageBundleCache.keys().next().value;
       state.pageBundleCache.delete(oldestKey);
     }
@@ -469,9 +471,14 @@ function prefetchPageBundle(pageNumber) {
 
   fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`)
     .then(res => res.ok ? res.json() : null)
-    .then(bundle => {
+    .then(async (bundle) => {
       if (bundle && state.pageBundleCache) {
-        if (state.pageBundleCache.size >= 10) {
+        if (bundle.image_data_url) {
+          const preImg = new Image();
+          preImg.src = bundle.image_data_url;
+          if (preImg.decode) preImg.decode().catch(() => {});
+        }
+        if (state.pageBundleCache.size >= MAX_BUNDLE_CACHE_SIZE) {
           const oldestKey = state.pageBundleCache.keys().next().value;
           state.pageBundleCache.delete(oldestKey);
         }
@@ -490,7 +497,7 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
   // Cache this bundle in memory
   const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
   if (state.pageBundleCache) {
-    if (state.pageBundleCache.size >= 10) {
+    if (state.pageBundleCache.size >= MAX_BUNDLE_CACHE_SIZE) {
       const oldestKey = state.pageBundleCache.keys().next().value;
       state.pageBundleCache.delete(oldestKey);
     }
@@ -510,13 +517,20 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
   }
 
   try {
-    pdfPageImage.src = bundle.image_data_url;
+    // Hardware pre-decode image off-thread to avoid any white blink or frame hitch
+    if (bundle.image_data_url) {
+      const preloadImg = new Image();
+      preloadImg.src = bundle.image_data_url;
+      try {
+        if (preloadImg.decode) {
+          await preloadImg.decode();
+        } else if (!preloadImg.complete) {
+          await new Promise(r => { preloadImg.onload = r; preloadImg.onerror = r; });
+        }
+      } catch (_) {}
+    }
 
-    await new Promise((resolve) => {
-      if (pdfPageImage.complete) return resolve();
-      pdfPageImage.onload = () => resolve();
-      pdfPageImage.onerror = () => resolve();
-    });
+    pdfPageImage.src = bundle.image_data_url;
 
     if (canvasWrapper) {
       canvasWrapper.style.minHeight = "";
@@ -560,13 +574,13 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
     }
     if (state.isInkMode) syncInkCanvasSize();
 
-    // Speculative prefetch adjacent pages during idle time
-    if (pageNumber < state.totalPages) {
-      setTimeout(() => prefetchPageBundle(pageNumber + 1), 200);
-    }
-    if (pageNumber > 1) {
-      setTimeout(() => prefetchPageBundle(pageNumber - 1), 400);
-    }
+    // Speculatively prefetch adjacent and secondary pages during idle time
+    const prefetchTargets = [pageNumber + 1, pageNumber - 1, pageNumber + 2, pageNumber - 2];
+    prefetchTargets.forEach((p, idx) => {
+      if (p >= 1 && p <= state.totalPages) {
+        setTimeout(() => prefetchPageBundle(p), (idx + 1) * 120);
+      }
+    });
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -1438,8 +1452,32 @@ async function performSearch(query) {
     return;
   }
 
+  const queryTrim = query.trim();
+  const lowerQuery = queryTrim.toLowerCase();
+
+  // Instant 0ms local match preview on currently rendered page text blocks
+  const localMatches = [];
+  if (state.textBlocks && state.textBlocks.length > 0) {
+    state.textBlocks.forEach(tb => {
+      const text = (tb.text || "").toLowerCase();
+      if (text.includes(lowerQuery)) {
+        localMatches.push({
+          page: state.currentPage,
+          bbox: tb.bbox,
+          text: tb.text
+        });
+      }
+    });
+  }
+  if (localMatches.length > 0 && state.searchResults.length === 0) {
+    state.searchResults = localMatches;
+    state.currentSearchIndex = 0;
+    updateSearchCounter();
+    renderSearchHighlights();
+  }
+
   try {
-    const res = await fetch(`/api/document/${state.docId}/search?q=${encodeURIComponent(query.trim())}`);
+    const res = await fetch(`/api/document/${state.docId}/search?q=${encodeURIComponent(queryTrim)}`);
     if (!res.ok) return;
     const data = await res.json();
     state.searchResults = data.results || [];
@@ -1447,7 +1485,7 @@ async function performSearch(query) {
     updateSearchCounter();
     renderSearchHighlights();
 
-    // Jump to first match page
+    // Jump to first match page if not on current page
     if (state.searchResults.length > 0) {
       const match = state.searchResults[0];
       if (match.page !== state.currentPage) {
