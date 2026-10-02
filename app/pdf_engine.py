@@ -1,7 +1,7 @@
 """
-In-House PDF Editor - Core Engine
+PDF Studio & Editor - Core Engine
 Powered by PyMuPDF (fitz)
-Provides high-performance, 100% offline, local PDF manipulation.
+Provides high-performance, private, and secure PDF manipulation.
 """
 
 import io

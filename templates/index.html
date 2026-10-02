@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="In-House Local PDF Studio & Editor: Private, high-performance offline PDF editing. Edit text natively, author forms, place redactions, and optimize PDFs." />
+  <meta name="description" content="PDF Studio & Editor: Fast, secure, high-performance PDF editing. Edit text natively, author forms, place true redactions, extract tables to Excel, and optimize PDFs." />
   <meta name="theme-color" content="#4f46e5" />
-  <title>In-House Local PDF Studio &amp; Editor</title>
+  <title>PDF Studio &amp; Editor</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.9.2" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.3" />
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -26,10 +26,10 @@
         </svg>
       </div>
       <div class="brand-text">
-        <h1>Local PDF Studio</h1>
-        <span class="badge offline-badge">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          100% Offline &amp; Private
+        <h1>PDF Studio</h1>
+        <span class="badge studio-badge">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          Fast &amp; Secure
         </span>
       </div>
     </div>
@@ -94,10 +94,10 @@
       <div class="hero-header">
         <div class="hero-pill">
           <span class="pulse-dot"></span>
-          Enterprise Offline PDF Engine
+          High-Performance PDF Engine
         </div>
-        <h2>Commercial PDF Studio, Running 100% Locally</h2>
-        <p>Edit text natively, author AcroForms, place true redactions, reorder &amp; split pages, stamp signatures, and inspect PDF/A compliance — zero cloud tracking.</p>
+        <h2>Professional PDF Studio, Built for Speed &amp; Precision</h2>
+        <p>Edit text natively, author interactive AcroForms, place true redactions, extract tables to Excel, measure drawings, and optimize documents in real-time.</p>
       </div>
 
       <div class="dropzone" id="dropZone">
@@ -116,53 +116,141 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             Choose PDF File
           </button>
-          <span class="dropzone-hint">Supports all PDF versions 1.0–2.0, encrypted docs, and forms.</span>
+          
+          <div class="dropzone-format-tags">
+            <span class="format-pill">PDF 1.0–2.0</span>
+            <span class="format-pill">Fillable AcroForms</span>
+            <span class="format-pill">Scanned &amp; OCR</span>
+            <span class="format-pill">AES Encrypted</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trust & Capability Metrics Strip -->
+      <div class="hero-stats-strip">
+        <div class="stat-pill-card">
+          <div class="stat-icon-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-title">Instant Response</span>
+            <span class="stat-desc">Hardware-accelerated viewport</span>
+          </div>
+        </div>
+        <div class="stat-pill-card">
+          <div class="stat-icon-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-title">True Redaction</span>
+            <span class="stat-desc">Audit-grade stream cleansing</span>
+          </div>
+        </div>
+        <div class="stat-pill-card">
+          <div class="stat-icon-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-title">Table Extraction</span>
+            <span class="stat-desc">Export direct to Excel .xlsx</span>
+          </div>
+        </div>
+        <div class="stat-pill-card">
+          <div class="stat-icon-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-title">Private Sessions</span>
+            <span class="stat-desc">Isolated sandbox processing</span>
+          </div>
         </div>
       </div>
 
       <!-- Feature Grid on Landing Page -->
+      <div class="feature-grid-header">
+        <h3>Studio Capabilities &amp; Tools</h3>
+        <p>Click any feature below to select a PDF and get started immediately</p>
+      </div>
+
       <div class="feature-grid">
         <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
           <div class="feat-icon-box icon-blue">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
           </div>
-          <h4>Native Text Editing</h4>
-          <p>Click-to-edit existing text blocks, WYSIWYG rich text box insertion, and exact font replacement.</p>
+          <div class="feat-card-content">
+            <h4>Native Text Editing</h4>
+            <p>Click-to-edit existing text blocks in-place, change fonts/colors, and insert rich text boxes.</p>
+          </div>
         </div>
+
         <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
           <div class="feat-icon-box icon-emerald">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
           </div>
-          <h4>Interactive AcroForms</h4>
-          <p>Fill out fillable PDF forms, create form inputs/checkboxes/dropdowns, and flatten forms permanently.</p>
+          <div class="feat-card-content">
+            <h4>Interactive AcroForms</h4>
+            <p>Fill out fillable forms, author new text inputs, checkboxes, dropdowns, and flatten forms permanently.</p>
+          </div>
         </div>
+
         <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
           <div class="feat-icon-box icon-rose">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
           </div>
-          <h4>True Redaction</h4>
-          <p>Permanently scrub sensitive text, images, and metadata with custom redaction reason codes.</p>
+          <div class="feat-card-content">
+            <h4>True Redaction &amp; PII</h4>
+            <p>Scrub sensitive text, images, and metadata with custom reason codes and automated PII pattern detector.</p>
+          </div>
         </div>
+
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-teal">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          </div>
+          <div class="feat-card-content">
+            <h4>Table Extraction to Excel</h4>
+            <p>Detect structured document tables and export clean spreadsheets directly to Microsoft Excel (.xlsx).</p>
+          </div>
+        </div>
+
         <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
           <div class="feat-icon-box icon-amber">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
           </div>
-          <h4>Page Organization</h4>
-          <p>Drag-and-drop page reordering, rotate, duplicate, crop margins, insert blanks, and add page numbers.</p>
+          <div class="feat-card-content">
+            <h4>Page Organization &amp; Split</h4>
+            <p>Drag-and-drop page reordering, rotation, page extraction, splitting, and merging multiple PDF files.</p>
+          </div>
         </div>
+
         <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
           <div class="feat-icon-box icon-purple">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
           </div>
-          <h4>Ink, Stamps &amp; Notes</h4>
-          <p>Freehand pencil drawing with eraser, sticky note placement, and official verification stamps.</p>
+          <div class="feat-card-content">
+            <h4>Ink, Stamps &amp; Annotations</h4>
+            <p>Freehand pencil drawing with eraser, sticky note placement, highlighter markups, and official verification stamps.</p>
+          </div>
         </div>
+
+        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
+          <div class="feat-icon-box icon-indigo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20"></path><path d="M6 8v8"></path><path d="M10 9v6"></path><path d="M14 9v6"></path><path d="M18 8v8"></path></svg>
+          </div>
+          <div class="feat-card-content">
+            <h4>Measurements &amp; Blueprint Ruler</h4>
+            <p>Measure calibrated distances, polygon perimeter, and surface area with custom architectural unit scales.</p>
+          </div>
+        </div>
+
         <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
           <div class="feat-icon-box icon-cyan">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
           </div>
-          <h4>Security &amp; Compliance</h4>
-          <p>AES-256 encryption, document sanitization, stream compression, and PDF/A conformance inspection.</p>
+          <div class="feat-card-content">
+            <h4>Compression &amp; Security</h4>
+            <p>Multi-pass lossless compression, PDF/A compliance audits, and AES-256 document password encryption.</p>
+          </div>
         </div>
       </div>
     </section>

@@ -1,6 +1,6 @@
 /**
- * In-House Local PDF Studio & Editor - Client Application
- * Enterprise-grade offline PDF studio powered by FastAPI & PyMuPDF.
+ * PDF Studio & Editor - Client Application
+ * Enterprise-grade cloud & self-hosted PDF studio powered by FastAPI & PyMuPDF.
  */
 
 // Application State

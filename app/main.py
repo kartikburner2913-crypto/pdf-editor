@@ -1,7 +1,7 @@
 """
-In-House PDF Editor - FastAPI Web Application
+PDF Studio & Editor - FastAPI Web Application
 Provides RESTful APIs and serves the front page interactive interface.
-100% offline & local processing.
+High-performance, secure, and private PDF processing.
 """
 
 import os
@@ -21,9 +21,9 @@ from app.pdf_engine import PDFEngine
 from fastapi.middleware.gzip import GZipMiddleware
 
 app = FastAPI(
-    title="In-House PDF Editor",
-    description="Local, private, high-performance PDF editor powered by PyMuPDF and FastAPI.",
-    version="1.0.0"
+    title="PDF Studio & Editor",
+    description="High-performance, private, and secure PDF editor powered by PyMuPDF and FastAPI.",
+    version="2.0.0"
 )
 
 # Enable automatic Gzip compression for all JSON and static payloads > 1KB
