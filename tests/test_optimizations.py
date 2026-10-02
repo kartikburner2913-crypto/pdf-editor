@@ -189,3 +189,46 @@ class TestOptimizations:
         ink_data = ink_res.json()
         assert "page_bundle" in ink_data
         assert ink_data["version"] == 2
+
+    def test_security_headers_present(self):
+        res = client.get("/")
+        assert res.status_code == 200
+        assert res.headers.get("X-Content-Type-Options") == "nosniff"
+        assert res.headers.get("X-Frame-Options") == "SAMEORIGIN"
+        assert res.headers.get("X-XSS-Protection") == "1; mode=block"
+        assert "Content-Security-Policy" in res.headers
+
+    def test_security_magic_bytes_and_path_traversal(self):
+        # 1. Reject non-PDF fake binary upload
+        bad_upload = client.post(
+            "/api/upload",
+            files={"file": ("fake.pdf", b"NOT_A_REAL_PDF_HEADER", "application/pdf")}
+        )
+        assert bad_upload.status_code == 400
+        assert "Missing standard %PDF-" in bad_upload.json()["detail"]
+
+        # 2. Reject path traversal document IDs
+        bad_id_res = client.get("/api/document/../../etc/passwd/info")
+        assert bad_id_res.status_code in [400, 404]
+
+    def test_zero_retention_session_purge_endpoint(self):
+        pdf_bytes = create_sample_doc(num_pages=1)
+        upload_res = client.post(
+            "/api/upload",
+            files={"file": ("purge_test.pdf", pdf_bytes, "application/pdf")}
+        )
+        assert upload_res.status_code == 200
+        doc_id = upload_res.json()["doc_id"]
+        doc_dir = os.path.join(DATA_DIR, doc_id)
+
+        assert doc_id in DOC_STORE
+        assert os.path.exists(doc_dir)
+
+        # Explicitly purge session
+        close_res = client.delete(f"/api/document/{doc_id}")
+        assert close_res.status_code == 200
+
+        # Verify zero residual data
+        assert doc_id not in DOC_STORE
+        assert not os.path.exists(doc_dir)
+

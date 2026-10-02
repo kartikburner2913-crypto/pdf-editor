@@ -6,14 +6,17 @@ High-performance, secure, and private PDF processing.
 
 import os
 import io
+import re
 import time
 import uuid
 import shutil
 import threading
+import urllib.parse
 from typing import List, Dict, Any, Optional, Union
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
 from pydantic import BaseModel
 
 from app.pdf_engine import PDFEngine
@@ -28,6 +31,53 @@ app = FastAPI(
 
 # Enable automatic Gzip compression for all JSON and static payloads > 1KB
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# OWASP Recommended Security Response Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'self';"
+    )
+    return response
+
+# Security Constants & Validators
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB max payload ceiling
+DOC_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+def validate_doc_id(doc_id: str) -> str:
+    """Validate document ID against strict alphanumeric regex to prevent path traversal."""
+    if not doc_id or not DOC_ID_REGEX.match(doc_id) or ".." in doc_id:
+        raise HTTPException(status_code=400, detail="Invalid or unsafe document ID format.")
+    return doc_id
+
+def sanitize_filename(filename: str) -> str:
+    """Strip path separators, control characters, and newlines to prevent response splitting."""
+    if not filename:
+        return "document.pdf"
+    clean = re.sub(r'[\r\n\x00-\x1f\\/:"*?<>|]+', '_', os.path.basename(filename)).strip()
+    return clean if clean else "document.pdf"
+
+def validate_pdf_binary(contents: bytes) -> None:
+    """Validate binary size and standard PDF magic-bytes header."""
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded PDF file is empty.")
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail=f"File exceeds maximum allowed size of {MAX_UPLOAD_SIZE // (1024 * 1024)}MB.")
+    # Check for %PDF magic header in initial byte range
+    if not (contents[:5].startswith(b"%PDF") or b"%PDF-" in contents[:1024]):
+        raise HTTPException(status_code=400, detail="Invalid file: Missing standard %PDF- binary header.")
 
 # Resolve paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,8 +101,21 @@ DOC_STORE: Dict[str, Dict[str, Any]] = {}
 MAX_STORE_ITEMS = 50
 SESSION_TTL_SECONDS = 7200  # 2 hours idle TTL
 
+def _background_cleanup_daemon():
+    """Periodic non-blocking background cleaner purging expired sessions from RAM and disk."""
+    while True:
+        try:
+            time.sleep(600)  # run every 10 minutes
+            prune_store()
+        except Exception:
+            pass
+
+_cleaner_thread = threading.Thread(target=_background_cleanup_daemon, daemon=True)
+_cleaner_thread.start()
+
 
 def get_doc_bytes(doc_id: str, version: int = None) -> bytes:
+    validate_doc_id(doc_id)
     doc = DOC_STORE.get(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -171,6 +234,7 @@ def prune_store():
 
 
 def get_doc(doc_id: str) -> Dict[str, Any]:
+    validate_doc_id(doc_id)
     doc = DOC_STORE.get(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found or expired. Please re-upload.")
@@ -523,8 +587,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     contents = await file.read()
-    if len(contents) == 0:
-        raise HTTPException(status_code=400, detail="The uploaded PDF file is empty.")
+    validate_pdf_binary(contents)
 
     try:
         info = PDFEngine.get_document_info(contents)
@@ -538,7 +601,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     save_doc_bytes(doc_id, 0, contents)
     
     DOC_STORE[doc_id] = {
-        "filename": file.filename,
+        "filename": sanitize_filename(file.filename),
         "current_version": 0,
         "max_version": 0,
         "updated_at": time.time()
@@ -546,9 +609,21 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     return {
         "doc_id": doc_id,
-        "filename": file.filename,
+        "filename": sanitize_filename(file.filename),
         "info": info
     }
+
+
+@app.delete("/api/document/{doc_id}")
+@app.post("/api/document/{doc_id}/close")
+async def close_document_session(doc_id: str):
+    """Immediately and permanently purge document session from RAM and disk."""
+    validate_doc_id(doc_id)
+    DOC_STORE.pop(doc_id, None)
+    doc_dir = os.path.join(DATA_DIR, doc_id)
+    if os.path.exists(doc_dir):
+        shutil.rmtree(doc_dir, ignore_errors=True)
+    return {"status": "success", "message": "Document session purged from server."}
 
 
 @app.get("/api/document/{doc_id}/info")
@@ -815,6 +890,7 @@ async def merge_pdfs(files: List[UploadFile] = File(...)):
         if not f.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail=f"File '{f.filename}' is not a PDF.")
         content = await f.read()
+        validate_pdf_binary(content)
         pdf_bytes_list.append(content)
 
     try:
@@ -911,10 +987,7 @@ async def compress_uploaded_file(
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     contents = await file.read()
-    if len(contents) == 0:
-        raise HTTPException(status_code=400, detail="The uploaded PDF file is empty.")
-    if len(contents) > 250 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="PDF exceeds maximum allowed file size of 250 MB.")
+    validate_pdf_binary(contents)
 
     try:
         res = PDFEngine.compress_pdf_advanced(
@@ -937,8 +1010,9 @@ async def compress_uploaded_file(
     os.makedirs(os.path.join(DATA_DIR, doc_id), exist_ok=True)
     save_doc_bytes(doc_id, 0, res["compressed_bytes"])
     
+    safe_name = sanitize_filename(file.filename)
     DOC_STORE[doc_id] = {
-        "filename": file.filename,
+        "filename": safe_name,
         "current_version": 0,
         "max_version": 0,
         "current_bytes": res["compressed_bytes"],
@@ -948,7 +1022,7 @@ async def compress_uploaded_file(
     return {
         "status": "success",
         "doc_id": doc_id,
-        "filename": file.filename,
+        "filename": safe_name,
         "original_size": res["original_size"],
         "compressed_size": res["compressed_size"],
         "new_size": res["compressed_size"],
@@ -977,8 +1051,7 @@ async def compress_direct_download(
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     contents = await file.read()
-    if len(contents) == 0:
-        raise HTTPException(status_code=400, detail="The uploaded PDF file is empty.")
+    validate_pdf_binary(contents)
 
     try:
         res = PDFEngine.compress_pdf_advanced(
@@ -995,17 +1068,18 @@ async def compress_direct_download(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Compression failed: {str(e)}")
 
-    out_name = file.filename
+    out_name = sanitize_filename(file.filename)
     if not out_name.lower().endswith(".pdf"):
         out_name += ".pdf"
     if not out_name.startswith("compressed_"):
         out_name = f"compressed_{out_name}"
+    encoded_out_name = urllib.parse.quote(out_name)
 
     return StreamingResponse(
         io.BytesIO(res["compressed_bytes"]),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{out_name}"',
+            "Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_out_name}',
             "X-Original-Size": str(res["original_size"]),
             "X-Compressed-Size": str(res["compressed_size"]),
             "X-Savings-Percent": str(res["savings_percent"]),
@@ -1120,16 +1194,20 @@ async def search_text(doc_id: str, q: str = Query(..., min_length=1), page: int 
 async def download_pdf(doc_id: str):
     """Download the current edited PDF."""
     doc = get_doc(doc_id)
-    filename = doc["filename"]
-    if not filename.lower().endswith(".pdf"):
-        filename += ".pdf"
-    if not filename.startswith("edited_"):
-        filename = f"edited_{filename}"
+    raw_filename = doc["filename"]
+    if not raw_filename.lower().endswith(".pdf"):
+        raw_filename += ".pdf"
+    if not raw_filename.startswith("edited_"):
+        raw_filename = f"edited_{raw_filename}"
+    safe_filename = sanitize_filename(raw_filename)
+    encoded_filename = urllib.parse.quote(safe_filename)
         
     return StreamingResponse(
         io.BytesIO(doc["current_bytes"]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+        }
     )
 
 

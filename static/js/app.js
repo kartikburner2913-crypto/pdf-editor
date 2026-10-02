@@ -373,6 +373,12 @@ async function handlePdfUpload(file) {
     return;
   }
 
+  // If a document was already open, securely purge it from server memory/disk
+  if (state.docId) {
+    const oldDocId = state.docId;
+    fetch(`/api/document/${oldDocId}/close`, { method: "POST", keepalive: true }).catch(() => {});
+  }
+
   showToast("Uploading and parsing document...", "info");
   setLoading(true, "Parsing PDF...");
   const formData = new FormData();
@@ -7196,6 +7202,15 @@ function setupPdfCompressionFeature() {
       showToast("Download started!", "success");
     });
   }
-}
+// Zero-Retention Security: Scrub session from server RAM/disk when user navigates away
+window.addEventListener("beforeunload", () => {
+  if (state.docId) {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(`/api/document/${state.docId}/close`);
+    } else {
+      fetch(`/api/document/${state.docId}/close`, { method: "POST", keepalive: true }).catch(() => {});
+    }
+  }
+});
 
 
