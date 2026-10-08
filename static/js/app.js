@@ -2329,33 +2329,39 @@ function initLiveTextTransformBox(options = {}) {
       height: window.innerHeight
     };
     const boxRect = box.getBoundingClientRect();
-    const tbWidth = toolbar.offsetWidth || 560;
-    const tbHeight = toolbar.offsetHeight || 38;
+
+    // Accurately measure toolbar dimensions
+    const tbRect = toolbar.getBoundingClientRect();
+    const tbWidth = tbRect.width > 0 ? tbRect.width : (toolbar.offsetWidth || 480);
+    const tbHeight = tbRect.height > 0 ? tbRect.height : (toolbar.offsetHeight || 32);
 
     // 1. Vertical positioning (Above vs Below)
-    const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 10;
-    const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 10;
+    const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 8;
+    const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 8;
 
-    if (spaceAbove < (tbHeight + 15) && spaceBelow >= (tbHeight + 15)) {
+    if (spaceAbove < (tbHeight + 35) && spaceBelow >= (tbHeight + 15)) {
       toolbar.classList.add("toolbar-below");
-    } else if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 15)) {
+    } else if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 35)) {
       toolbar.classList.remove("toolbar-below");
-    } else if (spaceAbove < 65) {
+    } else if (spaceAbove < (tbHeight + 35)) {
       toolbar.classList.add("toolbar-below");
     } else {
       toolbar.classList.remove("toolbar-below");
     }
 
-    // 2. Horizontal clamping: Keep toolbar strictly within visible viewport bounds
-    const padding = 12;
-    const screenMinX = Math.max(viewportRect.left + padding, padding);
-    const screenMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - tbWidth;
+    // 2. Horizontal clamping: Strictly constrain toolbar within visible viewport margins
+    const padding = 8;
+    const availWidth = Math.max(260, viewportRect.width - padding * 2);
+    const effectiveTbWidth = Math.min(tbWidth, availWidth);
+
+    const screenMinX = viewportRect.left + padding;
+    const screenMaxX = viewportRect.right - padding - effectiveTbWidth;
 
     const idealCenter = boxRect.left + (boxRect.width / 2);
-    const idealScreenLeft = idealCenter - (tbWidth / 2);
+    const idealScreenLeft = idealCenter - (effectiveTbWidth / 2);
 
     let clampedScreenLeft;
-    if (screenMaxX < screenMinX) {
+    if (screenMaxX <= screenMinX) {
       clampedScreenLeft = screenMinX;
     } else {
       clampedScreenLeft = Math.max(screenMinX, Math.min(idealScreenLeft, screenMaxX));
@@ -2365,10 +2371,12 @@ function initLiveTextTransformBox(options = {}) {
     toolbar.style.left = `${Math.round(relLeft)}px`;
     toolbar.style.transform = "none";
     toolbar.style.right = "auto";
+    toolbar.style.maxWidth = `${Math.floor(availWidth)}px`;
 
     // 3. Keep pill within horizontal viewport bounds as well
     if (pill) {
-      const pillWidth = pill.offsetWidth || 180;
+      const pillRect = pill.getBoundingClientRect();
+      const pillWidth = pillRect.width > 0 ? pillRect.width : (pill.offsetWidth || 220);
       const idealPillScreenLeft = boxRect.left;
       const pillMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - pillWidth;
       const pillMinX = Math.max(viewportRect.left + padding, padding);
@@ -2378,6 +2386,7 @@ function initLiveTextTransformBox(options = {}) {
       }
       const relPillLeft = clampedPillScreenLeft - boxRect.left;
       pill.style.left = `${Math.round(relPillLeft)}px`;
+      pill.style.maxWidth = `${Math.floor(availWidth)}px`;
     }
   }
 
@@ -2513,77 +2522,81 @@ function initLiveTextTransformBox(options = {}) {
   box.appendChild(body);
 
   toolbar.innerHTML = `
-    <select class="tb-font-select" title="Font Family">
-      <option value="helv" ${currentFontName === 'helv' ? 'selected' : ''}>Helvetica</option>
-      <option value="times" ${currentFontName === 'times' ? 'selected' : ''}>Times</option>
-      <option value="couri" ${currentFontName === 'couri' ? 'selected' : ''}>Courier</option>
-    </select>
-    <button type="button" class="size-stepper-btn tb-size-dec" title="Decrease Font Size">-</button>
-    <input type="number" class="tb-size-input" value="${Math.round(currentFontSize)}" min="6" max="96" style="width: 38px; text-align: center;" />
-    <button type="button" class="size-stepper-btn tb-size-inc" title="Increase Font Size">+</button>
-    <div class="tb-divider"></div>
-    <input type="color" class="tb-color-input" value="${currentColor}" title="Text Color" />
-    <button type="button" class="tool-btn tb-bold-btn ${currentBold ? 'active' : ''}" title="Bold">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
-    </button>
-    <button type="button" class="tool-btn tb-italic-btn ${currentItalic ? 'active' : ''}" title="Italic">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
-    </button>
-    <div class="tb-divider"></div>
-    <button type="button" class="tool-btn tb-align-btn ${currentAlign === 0 ? 'active' : ''}" data-align="0" title="Align Left">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="6" x2="3" y2="6"/><line x1="15" y1="12" x2="3" y2="12"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
-    </button>
-    <button type="button" class="tool-btn tb-align-btn ${currentAlign === 1 ? 'active' : ''}" data-align="1" title="Align Center">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="6" x2="3" y2="6"/><line x1="19" y1="12" x2="5" y2="12"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
-    </button>
-    <button type="button" class="tool-btn tb-align-btn ${currentAlign === 2 ? 'active' : ''}" data-align="2" title="Align Right">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="12" x2="9" y2="12"/><line x1="21" y1="18" x2="7" y2="18"/></svg>
-    </button>
-    <div class="tb-divider"></div>
-    <button type="button" class="tool-btn tb-auto-height-btn ${isAutoHeight ? 'active' : ''}" title="Toggle Auto-Height / Fit to Content">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 15 12 20 17 15"/><polyline points="7 9 12 4 17 9"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-      <span>${isAutoHeight ? 'Auto-Fit' : 'Fixed'}</span>
-    </button>
-    <div class="tb-divider"></div>
-    <div class="tb-dropdown-wrap layer-dropdown-wrap">
-      <button type="button" class="tool-btn tb-layer-btn" title="Layer Depth / Stacking (Z-Index)">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        <span>Layer</span>
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+    <div class="tb-group tb-formatting-group">
+      <select class="tb-font-select" title="Font Family">
+        <option value="helv" ${currentFontName === 'helv' ? 'selected' : ''}>Helvetica</option>
+        <option value="times" ${currentFontName === 'times' ? 'selected' : ''}>Times</option>
+        <option value="couri" ${currentFontName === 'couri' ? 'selected' : ''}>Courier</option>
+      </select>
+      <button type="button" class="size-stepper-btn tb-size-dec" title="Decrease Font Size">-</button>
+      <input type="number" class="tb-size-input" value="${Math.round(currentFontSize)}" min="6" max="96" style="width: 28px; text-align: center;" />
+      <button type="button" class="size-stepper-btn tb-size-inc" title="Increase Font Size">+</button>
+      <div class="tb-divider"></div>
+      <input type="color" class="tb-color-input" value="${currentColor}" title="Text Color" />
+      <button type="button" class="tool-btn tb-bold-btn ${currentBold ? 'active' : ''}" title="Bold">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
       </button>
-      <div class="layer-dropdown-menu">
-        <button type="button" class="layer-item" data-action="bring_to_front" title="Bring to Front (Ctrl + ])">
-          <span class="layer-icon">⤊</span>
-          <span class="layer-title">Bring to Front</span>
-          <span class="layer-shortcut">Ctrl+]</span>
+      <button type="button" class="tool-btn tb-italic-btn ${currentItalic ? 'active' : ''}" title="Italic">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+      </button>
+      <div class="tb-divider"></div>
+      <button type="button" class="tool-btn tb-align-btn ${currentAlign === 0 ? 'active' : ''}" data-align="0" title="Align Left">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="6" x2="3" y2="6"/><line x1="15" y1="12" x2="3" y2="12"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
+      </button>
+      <button type="button" class="tool-btn tb-align-btn ${currentAlign === 1 ? 'active' : ''}" data-align="1" title="Align Center">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="6" x2="3" y2="6"/><line x1="19" y1="12" x2="5" y2="12"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+      </button>
+      <button type="button" class="tool-btn tb-align-btn ${currentAlign === 2 ? 'active' : ''}" data-align="2" title="Align Right">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="12" x2="9" y2="12"/><line x1="21" y1="18" x2="7" y2="18"/></svg>
+      </button>
+      <div class="tb-divider"></div>
+      <button type="button" class="tool-btn tb-auto-height-btn ${isAutoHeight ? 'active' : ''}" title="Toggle Auto-Height / Fit to Content">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 15 12 20 17 15"/><polyline points="7 9 12 4 17 9"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        <span>${isAutoHeight ? 'Auto-Fit' : 'Fixed'}</span>
+      </button>
+      <div class="tb-divider"></div>
+      <div class="tb-dropdown-wrap layer-dropdown-wrap">
+        <button type="button" class="tool-btn tb-layer-btn" title="Layer Depth / Stacking (Z-Index)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span>Layer</span>
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <button type="button" class="layer-item" data-action="bring_forward" title="Bring Forward (Alt + ])">
-          <span class="layer-icon">⇡</span>
-          <span class="layer-title">Bring Forward</span>
-          <span class="layer-shortcut">Alt+]</span>
-        </button>
-        <button type="button" class="layer-item" data-action="send_backward" title="Send Backward (Alt + [)">
-          <span class="layer-icon">⇣</span>
-          <span class="layer-title">Send Backward</span>
-          <span class="layer-shortcut">Alt+[</span>
-        </button>
-        <button type="button" class="layer-item" data-action="send_to_back" title="Send to Back (Ctrl + [)">
-          <span class="layer-icon">⤋</span>
-          <span class="layer-title">Send to Back</span>
-          <span class="layer-shortcut">Ctrl+[</span>
-        </button>
+        <div class="layer-dropdown-menu">
+          <button type="button" class="layer-item" data-action="bring_to_front" title="Bring to Front (Ctrl + ])">
+            <span class="layer-icon">⤊</span>
+            <span class="layer-title">Bring to Front</span>
+            <span class="layer-shortcut">Ctrl+]</span>
+          </button>
+          <button type="button" class="layer-item" data-action="bring_forward" title="Bring Forward (Alt + ])">
+            <span class="layer-icon">⇡</span>
+            <span class="layer-title">Bring Forward</span>
+            <span class="layer-shortcut">Alt+]</span>
+          </button>
+          <button type="button" class="layer-item" data-action="send_backward" title="Send Backward (Alt + [)">
+            <span class="layer-icon">⇣</span>
+            <span class="layer-title">Send Backward</span>
+            <span class="layer-shortcut">Alt+[</span>
+          </button>
+          <button type="button" class="layer-item" data-action="send_to_back" title="Send to Back (Ctrl + [)">
+            <span class="layer-icon">⤋</span>
+            <span class="layer-title">Send to Back</span>
+            <span class="layer-shortcut">Ctrl+[</span>
+          </button>
+        </div>
       </div>
     </div>
-    <div class="tb-divider"></div>
-    <button type="button" class="tool-btn btn-save" title="Apply / Save Text (Ctrl+Enter)">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-      <span>${mode === 'edit' ? 'Save' : 'Apply'}</span>
-    </button>
-    ${mode === 'edit' ? '<button type="button" class="tool-btn btn-delete" title="Delete Text"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : ''}
-    <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      <span>Cancel</span>
-    </button>
+    <div class="tb-divider action-divider"></div>
+    <div class="tb-group tb-actions-group">
+      <button type="button" class="tool-btn btn-save" title="Apply / Save Text (Ctrl+Enter)">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>${mode === 'edit' ? 'Save' : 'Apply'}</span>
+      </button>
+      ${mode === 'edit' ? '<button type="button" class="tool-btn btn-delete" title="Delete Text"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : ''}
+      <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span>Cancel</span>
+      </button>
+    </div>
   `;
   box.appendChild(toolbar);
 
@@ -2893,8 +2906,10 @@ function initLiveTextTransformBox(options = {}) {
   interactiveOverlay.appendChild(box);
   activeTransformBox = box;
   updateCoordBadge();
+  updateToolbarPosition();
   requestAnimationFrame(() => updateToolbarPosition());
-  setTimeout(() => updateToolbarPosition(), 60);
+  setTimeout(() => updateToolbarPosition(), 50);
+  setTimeout(() => updateToolbarPosition(), 150);
 
   const onViewportScrollOrResize = () => {
     updateToolbarPosition();
@@ -3001,31 +3016,39 @@ function initLiveImageTransformBox(options = {}) {
       height: window.innerHeight
     };
     const boxRect = box.getBoundingClientRect();
-    const tbWidth = toolbar.offsetWidth || 480;
-    const tbHeight = toolbar.offsetHeight || 38;
 
-    const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 10;
-    const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 10;
+    // Accurately measure toolbar dimensions
+    const tbRect = toolbar.getBoundingClientRect();
+    const tbWidth = tbRect.width > 0 ? tbRect.width : (toolbar.offsetWidth || 460);
+    const tbHeight = tbRect.height > 0 ? tbRect.height : (toolbar.offsetHeight || 32);
 
-    if (spaceAbove < (tbHeight + 15) && spaceBelow >= (tbHeight + 15)) {
+    // 1. Vertical positioning (Above vs Below)
+    const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 8;
+    const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 8;
+
+    if (spaceAbove < (tbHeight + 35) && spaceBelow >= (tbHeight + 15)) {
       toolbar.classList.add("toolbar-below");
-    } else if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 15)) {
+    } else if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 35)) {
       toolbar.classList.remove("toolbar-below");
-    } else if (spaceAbove < 65) {
+    } else if (spaceAbove < (tbHeight + 35)) {
       toolbar.classList.add("toolbar-below");
     } else {
       toolbar.classList.remove("toolbar-below");
     }
 
-    const padding = 12;
-    const screenMinX = Math.max(viewportRect.left + padding, padding);
-    const screenMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - tbWidth;
+    // 2. Horizontal clamping: Strictly constrain toolbar within visible viewport margins
+    const padding = 8;
+    const availWidth = Math.max(260, viewportRect.width - padding * 2);
+    const effectiveTbWidth = Math.min(tbWidth, availWidth);
+
+    const screenMinX = viewportRect.left + padding;
+    const screenMaxX = viewportRect.right - padding - effectiveTbWidth;
 
     const idealCenter = boxRect.left + (boxRect.width / 2);
-    const idealScreenLeft = idealCenter - (tbWidth / 2);
+    const idealScreenLeft = idealCenter - (effectiveTbWidth / 2);
 
     let clampedScreenLeft;
-    if (screenMaxX < screenMinX) {
+    if (screenMaxX <= screenMinX) {
       clampedScreenLeft = screenMinX;
     } else {
       clampedScreenLeft = Math.max(screenMinX, Math.min(idealScreenLeft, screenMaxX));
@@ -3035,9 +3058,12 @@ function initLiveImageTransformBox(options = {}) {
     toolbar.style.left = `${Math.round(relLeft)}px`;
     toolbar.style.transform = "none";
     toolbar.style.right = "auto";
+    toolbar.style.maxWidth = `${Math.floor(availWidth)}px`;
 
+    // 3. Keep pill within horizontal viewport bounds as well
     if (pill) {
-      const pillWidth = pill.offsetWidth || 180;
+      const pillRect = pill.getBoundingClientRect();
+      const pillWidth = pillRect.width > 0 ? pillRect.width : (pill.offsetWidth || 220);
       const idealPillScreenLeft = boxRect.left;
       const pillMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - pillWidth;
       const pillMinX = Math.max(viewportRect.left + padding, padding);
@@ -3047,6 +3073,7 @@ function initLiveImageTransformBox(options = {}) {
       }
       const relPillLeft = clampedPillScreenLeft - boxRect.left;
       pill.style.left = `${Math.round(relPillLeft)}px`;
+      pill.style.maxWidth = `${Math.floor(availWidth)}px`;
     }
   }
 
@@ -3120,74 +3147,78 @@ function initLiveImageTransformBox(options = {}) {
   box.appendChild(body);
 
   toolbar.innerHTML = `
-    <button type="button" class="tool-btn tb-ratio-btn ${isRatioLocked ? 'active' : ''}" title="Toggle Aspect Ratio Lock">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-      <span>${isRatioLocked ? '1:1 Lock' : 'Free'}</span>
-    </button>
-    <div class="tb-divider"></div>
-    <button type="button" class="tool-btn tb-rotate-btn" title="Rotate 90° Clockwise">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-      <span>Rotate</span>
-    </button>
-    <button type="button" class="tool-btn tb-flip-btn" title="Flip Horizontal">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="8 3 4 7 8 11"/><polyline points="16 21 20 17 16 13"/><line x1="4" y1="7" x2="20" y2="7"/><line x1="20" y1="17" x2="4" y2="17"/></svg>
-    </button>
-    <div class="tb-divider"></div>
-    <div class="tb-opacity-wrap" title="Opacity / Transparency" style="display:flex; align-items:center; gap:4px; font-size:11px;">
-      <span style="color:var(--text-muted); font-size:10px;">Op:</span>
-      <input type="range" class="tb-opacity-slider" min="10" max="100" value="${Math.round(currentOpacity * 100)}" style="width:50px; cursor:pointer;" />
-      <span class="tb-opacity-val" style="font-size:10px; min-width:26px; font-family:monospace;">${Math.round(currentOpacity * 100)}%</span>
-    </div>
-    <div class="tb-divider"></div>
-    ${mode === 'existing' ? `
-      <label class="tool-btn tb-replace-btn" title="Replace with new image file" style="cursor:pointer; margin:0;">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-        <span>Replace</span>
-        <input type="file" class="tb-replace-input" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff" style="display:none;" />
-      </label>` : ''}
-    <div class="tb-divider"></div>
-    <div class="tb-dropdown-wrap layer-dropdown-wrap">
-      <button type="button" class="tool-btn tb-layer-btn" title="Layer Depth / Stacking (Z-Index)">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        <span>Layer</span>
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+    <div class="tb-group tb-formatting-group">
+      <button type="button" class="tool-btn tb-ratio-btn ${isRatioLocked ? 'active' : ''}" title="Toggle Aspect Ratio Lock">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <span>${isRatioLocked ? '1:1 Lock' : 'Free'}</span>
       </button>
-      <div class="layer-dropdown-menu">
-        <button type="button" class="layer-item" data-action="bring_to_front" title="Bring to Front (Ctrl + ])">
-          <span class="layer-icon">⤊</span>
-          <span class="layer-title">Bring to Front</span>
-          <span class="layer-shortcut">Ctrl+]</span>
+      <div class="tb-divider"></div>
+      <button type="button" class="tool-btn tb-rotate-btn" title="Rotate 90° Clockwise">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        <span>Rotate</span>
+      </button>
+      <button type="button" class="tool-btn tb-flip-btn" title="Flip Horizontal">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="8 3 4 7 8 11"/><polyline points="16 21 20 17 16 13"/><line x1="4" y1="7" x2="20" y2="7"/><line x1="20" y1="17" x2="4" y2="17"/></svg>
+      </button>
+      <div class="tb-divider"></div>
+      <div class="tb-opacity-wrap" title="Opacity / Transparency" style="display:flex; align-items:center; gap:3px; font-size:11px;">
+        <span style="color:var(--text-muted); font-size:10px;">Op:</span>
+        <input type="range" class="tb-opacity-slider" min="10" max="100" value="${Math.round(currentOpacity * 100)}" style="width:48px; cursor:pointer;" />
+        <span class="tb-opacity-val" style="font-size:10px; min-width:24px; font-family:monospace;">${Math.round(currentOpacity * 100)}%</span>
+      </div>
+      ${mode === 'existing' ? `
+        <div class="tb-divider"></div>
+        <label class="tool-btn tb-replace-btn" title="Replace with new image file" style="cursor:pointer; margin:0;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          <span>Replace</span>
+          <input type="file" class="tb-replace-input" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff" style="display:none;" />
+        </label>` : ''}
+      <div class="tb-divider"></div>
+      <div class="tb-dropdown-wrap layer-dropdown-wrap">
+        <button type="button" class="tool-btn tb-layer-btn" title="Layer Depth / Stacking (Z-Index)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span>Layer</span>
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <button type="button" class="layer-item" data-action="bring_forward" title="Bring Forward (Alt + ])">
-          <span class="layer-icon">⇡</span>
-          <span class="layer-title">Bring Forward</span>
-          <span class="layer-shortcut">Alt+]</span>
-        </button>
-        <button type="button" class="layer-item" data-action="send_backward" title="Send Backward (Alt + [)">
-          <span class="layer-icon">⇣</span>
-          <span class="layer-title">Send Backward</span>
-          <span class="layer-shortcut">Alt+[</span>
-        </button>
-        <button type="button" class="layer-item" data-action="send_to_back" title="Send to Back (Ctrl + [)">
-          <span class="layer-icon">⤋</span>
-          <span class="layer-title">Send to Back</span>
-          <span class="layer-shortcut">Ctrl+[</span>
-        </button>
+        <div class="layer-dropdown-menu">
+          <button type="button" class="layer-item" data-action="bring_to_front" title="Bring to Front (Ctrl + ])">
+            <span class="layer-icon">⤊</span>
+            <span class="layer-title">Bring to Front</span>
+            <span class="layer-shortcut">Ctrl+]</span>
+          </button>
+          <button type="button" class="layer-item" data-action="bring_forward" title="Bring Forward (Alt + ])">
+            <span class="layer-icon">⇡</span>
+            <span class="layer-title">Bring Forward</span>
+            <span class="layer-shortcut">Alt+]</span>
+          </button>
+          <button type="button" class="layer-item" data-action="send_backward" title="Send Backward (Alt + [)">
+            <span class="layer-icon">⇣</span>
+            <span class="layer-title">Send Backward</span>
+            <span class="layer-shortcut">Alt+[</span>
+          </button>
+          <button type="button" class="layer-item" data-action="send_to_back" title="Send to Back (Ctrl + [)">
+            <span class="layer-icon">⤋</span>
+            <span class="layer-title">Send to Back</span>
+            <span class="layer-shortcut">Ctrl+[</span>
+          </button>
+        </div>
       </div>
     </div>
-    <div class="tb-divider"></div>
-    <button type="button" class="tool-btn btn-save" title="Save / Place Image on PDF">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-      <span>${mode === 'insert' ? 'Place Image' : 'Save'}</span>
-    </button>
-    ${mode === 'existing' ? `
-      <button type="button" class="tool-btn btn-delete" title="Delete Image">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-      </button>` : ''}
-    <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      <span>Cancel</span>
-    </button>
+    <div class="tb-divider action-divider"></div>
+    <div class="tb-group tb-actions-group">
+      <button type="button" class="tool-btn btn-save" title="Save / Place Image on PDF">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>${mode === 'insert' ? 'Place Image' : 'Save'}</span>
+      </button>
+      ${mode === 'existing' ? `
+        <button type="button" class="tool-btn btn-delete" title="Delete Image">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>` : ''}
+      <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span>Cancel</span>
+      </button>
+    </div>
   `;
   box.appendChild(toolbar);
 
@@ -3424,8 +3455,10 @@ function initLiveImageTransformBox(options = {}) {
   activeTransformBox = box;
   updateImgCoords();
   applyImgStyles();
+  updateImgToolbarPosition();
   requestAnimationFrame(() => updateImgToolbarPosition());
-  setTimeout(() => updateImgToolbarPosition(), 60);
+  setTimeout(() => updateImgToolbarPosition(), 50);
+  setTimeout(() => updateImgToolbarPosition(), 150);
 
   const onImgViewportScrollOrResize = () => {
     updateImgToolbarPosition();

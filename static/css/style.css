@@ -3028,18 +3028,17 @@ textarea.form-overlay-widget {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 5px;
+  flex-wrap: wrap;
+  gap: 3px;
   background: #ffffff;
   color: #0f172a;
-  padding: 5px 8px;
+  padding: 4px 6px;
   border-radius: 8px;
   border: 1px solid #cbd5e1;
   box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  font-size: 11.5px;
-  white-space: nowrap;
+  font-size: 11px;
   z-index: 45;
   user-select: none;
-  max-width: calc(100vw - 32px);
   box-sizing: border-box;
   transition: opacity 0.15s ease;
 }
@@ -3056,11 +3055,25 @@ textarea.form-overlay-widget {
   top: calc(100% + 10px);
 }
 
+.transform-floating-toolbar .tb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.transform-floating-toolbar .tb-actions-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
 .transform-floating-toolbar .tb-divider {
   width: 1px;
-  height: 18px;
+  height: 16px;
   background: #e2e8f0;
-  margin: 0 2px;
+  margin: 0 1px;
   flex-shrink: 0;
 }
 
@@ -3073,16 +3086,16 @@ textarea.form-overlay-widget {
   color: #334155;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 4px 7px;
-  font-size: 11.5px;
+  padding: 2px 5px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   transition: all 0.12s ease;
-  height: 26px;
+  height: 24px;
   box-sizing: border-box;
 }
 
@@ -3117,7 +3130,7 @@ textarea.form-overlay-widget {
   border-color: #1d4ed8;
   color: #ffffff;
   font-weight: 600;
-  padding: 4px 10px;
+  padding: 2px 8px;
 }
 
 .transform-floating-toolbar .tool-btn.btn-save:hover {
@@ -3128,6 +3141,7 @@ textarea.form-overlay-widget {
   background: transparent;
   border-color: #fca5a5;
   color: #dc2626;
+  padding: 2px 5px;
 }
 
 .transform-floating-toolbar .tool-btn.btn-delete:hover {
@@ -3144,8 +3158,8 @@ textarea.form-overlay-widget {
   background: #f8fafc;
   flex-shrink: 0;
   font-weight: 500;
-  padding: 4px 9px;
-  gap: 4px;
+  padding: 2px 7px;
+  gap: 3px;
 }
 
 .transform-floating-toolbar .tool-btn.tb-cancel-btn:hover {
@@ -3171,11 +3185,15 @@ textarea.form-overlay-widget {
   color: #334155;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 11.5px;
-  height: 26px;
+  padding: 1px 4px;
+  font-size: 11px;
+  height: 24px;
   outline: none;
   cursor: pointer;
+}
+
+.transform-floating-toolbar select.tb-font-select {
+  width: 76px;
 }
 
 [data-theme="dark"] .transform-floating-toolbar select {
@@ -3189,9 +3207,9 @@ textarea.form-overlay-widget {
   color: #334155;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
-  padding: 2px 4px;
-  font-size: 11.5px;
-  height: 26px;
+  padding: 1px 2px;
+  font-size: 11px;
+  height: 24px;
   outline: none;
 }
 
@@ -3202,14 +3220,15 @@ textarea.form-overlay-widget {
 }
 
 .transform-floating-toolbar .size-stepper-btn {
-  width: 22px;
-  height: 26px;
+  width: 18px;
+  height: 24px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  border-radius: 4px;
+  font-size: 11px;
+  border-radius: 3px;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   color: #334155;
@@ -3231,14 +3250,15 @@ textarea.form-overlay-widget {
 }
 
 .transform-floating-toolbar input[type="color"] {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: 1px solid #cbd5e1;
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* Layer Stacking Dropdown Menu */
