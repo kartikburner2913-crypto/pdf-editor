@@ -6,7 +6,7 @@ import pymupdf as fitz
 from PIL import Image
 from fastapi.testclient import TestClient
 
-from app.main import app, DOC_STORE, DATA_DIR, prune_store, get_doc, save_doc_bytes
+from app.main import app, DOC_STORE, DATA_DIR, STATIC_DIR, prune_store, get_doc, save_doc_bytes
 from app.pdf_engine import PDFEngine
 
 client = TestClient(app)
@@ -231,4 +231,12 @@ class TestOptimizations:
         # Verify zero residual data
         assert doc_id not in DOC_STORE
         assert not os.path.exists(doc_dir)
+
+    def test_frontend_javascript_syntax_valid(self):
+        import subprocess
+        js_path = os.path.join(STATIC_DIR, "js", "app.js")
+        assert os.path.exists(js_path)
+        result = subprocess.run(["node", "-c", js_path], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error in app.js: {result.stderr}"
+
 

@@ -7202,6 +7202,8 @@ function setupPdfCompressionFeature() {
       showToast("Download started!", "success");
     });
   }
+}
+
 // Zero-Retention Security: Scrub session from server RAM/disk when user navigates away
 window.addEventListener("beforeunload", () => {
   if (state.docId) {
