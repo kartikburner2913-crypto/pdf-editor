@@ -1271,7 +1271,7 @@ input[type="color"]::-webkit-color-swatch {
 /* Canvas Viewport */
 .canvas-viewport {
   flex: 1;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -2843,6 +2843,8 @@ textarea.form-overlay-widget {
   z-index: 38;
   box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.15);
   box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  transition: left 0.12s ease;
 }
 
 .transform-top-pill:active {
@@ -2872,17 +2874,18 @@ textarea.form-overlay-widget {
 
 .transform-top-pill .pill-close {
   cursor: pointer;
-  padding: 0 2px;
+  padding: 1px 4px;
   font-weight: 600;
-  border-radius: 2px;
-  display: flex;
+  border-radius: 3px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #94a3b8;
-  transition: color 0.12s ease;
+  transition: all 0.12s ease;
 }
 
 .transform-top-pill .pill-close:hover {
+  background: rgba(239, 68, 68, 0.25);
   color: #f87171;
 }
 
@@ -3036,7 +3039,9 @@ textarea.form-overlay-widget {
   white-space: nowrap;
   z-index: 45;
   user-select: none;
-  transition: all 0.15s ease;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  transition: opacity 0.15s ease;
 }
 
 [data-theme="dark"] .transform-floating-toolbar {
@@ -3135,12 +3140,30 @@ textarea.form-overlay-widget {
 
 .transform-floating-toolbar .tool-btn.tb-cancel-btn {
   color: #64748b;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  flex-shrink: 0;
+  font-weight: 500;
+  padding: 4px 9px;
+  gap: 4px;
+}
+
+.transform-floating-toolbar .tool-btn.tb-cancel-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
 }
 
 [data-theme="dark"] .transform-floating-toolbar .tool-btn.tb-cancel-btn {
-  border-color: #334155;
-  color: #94a3b8;
+  background: #1e293b;
+  border-color: #475569;
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .transform-floating-toolbar .tool-btn.tb-cancel-btn:hover {
+  background: #334155;
+  color: #ffffff;
+  border-color: #64748b;
 }
 
 .transform-floating-toolbar select {

@@ -1896,7 +1896,7 @@ function setupCanvasDrawing() {
   let startX = 0, startY = 0;
   let activeBox = null;
 
-  // Global click outside to deselect form field
+  // Global click outside to deselect form field and active live transform box
   document.addEventListener("pointerdown", (e) => {
     if (
       !e.target.closest(".form-overlay-wrapper") &&
@@ -1908,12 +1908,31 @@ function setupCanvasDrawing() {
     ) {
       deselectFormField();
     }
+
+    if (activeTransformBox) {
+      const isInsideTransform = e.target.closest(".live-transform-box");
+      const isInsideSidebar = e.target.closest("#sidebar");
+      const isInsideModal = e.target.closest(".modal") || e.target.closest("#confirmModal");
+      const isInsideToast = e.target.closest(".toast");
+      const isInsideContextMenu = e.target.closest(".custom-context-menu");
+      const isTextBlock = e.target.closest(".text-block-highlight");
+      const isImageOverlay = e.target.closest(".canvas-image-overlay");
+
+      if (!isInsideTransform && !isInsideSidebar && !isInsideModal && !isInsideToast && !isInsideContextMenu && !isTextBlock && !isImageOverlay) {
+        cancelTransformBox(false);
+      }
+    }
   });
 
   interactiveOverlay.addEventListener("mousedown", (e) => {
     // If clicking on canvas outside form overlays, deselect active form field
     if (!e.target.closest(".form-overlay-wrapper") && !e.target.closest("#fieldInspectorCard")) {
       deselectFormField();
+    }
+
+    // If clicking on canvas outside transform box, deselect active transform box
+    if (activeTransformBox && !e.target.closest(".live-transform-box")) {
+      cancelTransformBox(false);
     }
 
     // Guards to prevent canvas click from overriding interactive children
@@ -2158,11 +2177,16 @@ function setupCanvasDrawing() {
 
 function cancelTransformBox(keepMasks = false) {
   if (activeTransformBox) {
+    if (activeTransformBox._cleanup) {
+      try { activeTransformBox._cleanup(); } catch (e) {}
+    }
     activeTransformBox.remove();
     activeTransformBox = null;
   }
   const newTxt = document.getElementById("newTextContent");
   if (newTxt) newTxt.value = "";
+  if (blockEditorContainer) blockEditorContainer.style.display = "none";
+  state.selectedBlock = null;
   if (!keepMasks) {
     interactiveOverlay.querySelectorAll(".element-underlying-mask").forEach(el => el.remove());
     interactiveOverlay.querySelectorAll(".canvas-image-overlay").forEach(el => {
@@ -2293,12 +2317,67 @@ function initLiveTextTransformBox(options = {}) {
   toolbar.className = "transform-floating-toolbar";
 
   function updateToolbarPosition() {
-    if (!toolbar) return;
-    const curT = parseFloat(box.style.top) || 0;
-    if (curT < 70) {
+    if (!toolbar || !box) return;
+
+    const viewportEl = document.getElementById("canvasViewport");
+    const viewportRect = viewportEl ? viewportEl.getBoundingClientRect() : {
+      left: 0,
+      right: window.innerWidth,
+      top: 0,
+      bottom: window.innerHeight,
+      width: window.innerWidth,
+      height: window.innerHeight
+    };
+    const boxRect = box.getBoundingClientRect();
+    const tbWidth = toolbar.offsetWidth || 560;
+    const tbHeight = toolbar.offsetHeight || 38;
+
+    // 1. Vertical positioning (Above vs Below)
+    const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 10;
+    const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 10;
+
+    if (spaceAbove < (tbHeight + 15) && spaceBelow >= (tbHeight + 15)) {
+      toolbar.classList.add("toolbar-below");
+    } else if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 15)) {
+      toolbar.classList.remove("toolbar-below");
+    } else if (spaceAbove < 65) {
       toolbar.classList.add("toolbar-below");
     } else {
       toolbar.classList.remove("toolbar-below");
+    }
+
+    // 2. Horizontal clamping: Keep toolbar strictly within visible viewport bounds
+    const padding = 12;
+    const screenMinX = Math.max(viewportRect.left + padding, padding);
+    const screenMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - tbWidth;
+
+    const idealCenter = boxRect.left + (boxRect.width / 2);
+    const idealScreenLeft = idealCenter - (tbWidth / 2);
+
+    let clampedScreenLeft;
+    if (screenMaxX < screenMinX) {
+      clampedScreenLeft = screenMinX;
+    } else {
+      clampedScreenLeft = Math.max(screenMinX, Math.min(idealScreenLeft, screenMaxX));
+    }
+
+    const relLeft = clampedScreenLeft - boxRect.left;
+    toolbar.style.left = `${Math.round(relLeft)}px`;
+    toolbar.style.transform = "none";
+    toolbar.style.right = "auto";
+
+    // 3. Keep pill within horizontal viewport bounds as well
+    if (pill) {
+      const pillWidth = pill.offsetWidth || 180;
+      const idealPillScreenLeft = boxRect.left;
+      const pillMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - pillWidth;
+      const pillMinX = Math.max(viewportRect.left + padding, padding);
+      let clampedPillScreenLeft = idealPillScreenLeft;
+      if (pillMaxX >= pillMinX) {
+        clampedPillScreenLeft = Math.max(pillMinX, Math.min(idealPillScreenLeft, pillMaxX));
+      }
+      const relPillLeft = clampedPillScreenLeft - boxRect.left;
+      pill.style.left = `${Math.round(relPillLeft)}px`;
     }
   }
 
@@ -2501,7 +2580,10 @@ function initLiveTextTransformBox(options = {}) {
       <span>${mode === 'edit' ? 'Save' : 'Apply'}</span>
     </button>
     ${mode === 'edit' ? '<button type="button" class="tool-btn btn-delete" title="Delete Text"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : ''}
-    <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">Cancel</button>
+    <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <span>Cancel</span>
+    </button>
   `;
   box.appendChild(toolbar);
 
@@ -2811,6 +2893,20 @@ function initLiveTextTransformBox(options = {}) {
   interactiveOverlay.appendChild(box);
   activeTransformBox = box;
   updateCoordBadge();
+  requestAnimationFrame(() => updateToolbarPosition());
+  setTimeout(() => updateToolbarPosition(), 60);
+
+  const onViewportScrollOrResize = () => {
+    updateToolbarPosition();
+  };
+  const canvasViewportEl = document.getElementById("canvasViewport");
+  if (canvasViewportEl) canvasViewportEl.addEventListener("scroll", onViewportScrollOrResize, { passive: true });
+  window.addEventListener("resize", onViewportScrollOrResize, { passive: true });
+
+  box._cleanup = () => {
+    if (canvasViewportEl) canvasViewportEl.removeEventListener("scroll", onViewportScrollOrResize);
+    window.removeEventListener("resize", onViewportScrollOrResize);
+  };
 
   setTimeout(() => {
     textarea.focus();
@@ -2893,12 +2989,64 @@ function initLiveImageTransformBox(options = {}) {
   toolbar.className = "transform-floating-toolbar";
 
   function updateImgToolbarPosition() {
-    if (!toolbar) return;
-    const curT = parseFloat(box.style.top) || 0;
-    if (curT < 70) {
+    if (!toolbar || !box) return;
+
+    const viewportEl = document.getElementById("canvasViewport");
+    const viewportRect = viewportEl ? viewportEl.getBoundingClientRect() : {
+      left: 0,
+      right: window.innerWidth,
+      top: 0,
+      bottom: window.innerHeight,
+      width: window.innerWidth,
+      height: window.innerHeight
+    };
+    const boxRect = box.getBoundingClientRect();
+    const tbWidth = toolbar.offsetWidth || 480;
+    const tbHeight = toolbar.offsetHeight || 38;
+
+    const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 10;
+    const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 10;
+
+    if (spaceAbove < (tbHeight + 15) && spaceBelow >= (tbHeight + 15)) {
+      toolbar.classList.add("toolbar-below");
+    } else if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 15)) {
+      toolbar.classList.remove("toolbar-below");
+    } else if (spaceAbove < 65) {
       toolbar.classList.add("toolbar-below");
     } else {
       toolbar.classList.remove("toolbar-below");
+    }
+
+    const padding = 12;
+    const screenMinX = Math.max(viewportRect.left + padding, padding);
+    const screenMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - tbWidth;
+
+    const idealCenter = boxRect.left + (boxRect.width / 2);
+    const idealScreenLeft = idealCenter - (tbWidth / 2);
+
+    let clampedScreenLeft;
+    if (screenMaxX < screenMinX) {
+      clampedScreenLeft = screenMinX;
+    } else {
+      clampedScreenLeft = Math.max(screenMinX, Math.min(idealScreenLeft, screenMaxX));
+    }
+
+    const relLeft = clampedScreenLeft - boxRect.left;
+    toolbar.style.left = `${Math.round(relLeft)}px`;
+    toolbar.style.transform = "none";
+    toolbar.style.right = "auto";
+
+    if (pill) {
+      const pillWidth = pill.offsetWidth || 180;
+      const idealPillScreenLeft = boxRect.left;
+      const pillMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - pillWidth;
+      const pillMinX = Math.max(viewportRect.left + padding, padding);
+      let clampedPillScreenLeft = idealPillScreenLeft;
+      if (pillMaxX >= pillMinX) {
+        clampedPillScreenLeft = Math.max(pillMinX, Math.min(idealPillScreenLeft, pillMaxX));
+      }
+      const relPillLeft = clampedPillScreenLeft - boxRect.left;
+      pill.style.left = `${Math.round(relPillLeft)}px`;
     }
   }
 
@@ -3036,7 +3184,10 @@ function initLiveImageTransformBox(options = {}) {
       <button type="button" class="tool-btn btn-delete" title="Delete Image">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       </button>` : ''}
-    <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">Cancel</button>
+    <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <span>Cancel</span>
+    </button>
   `;
   box.appendChild(toolbar);
 
@@ -3273,6 +3424,20 @@ function initLiveImageTransformBox(options = {}) {
   activeTransformBox = box;
   updateImgCoords();
   applyImgStyles();
+  requestAnimationFrame(() => updateImgToolbarPosition());
+  setTimeout(() => updateImgToolbarPosition(), 60);
+
+  const onImgViewportScrollOrResize = () => {
+    updateImgToolbarPosition();
+  };
+  const canvasViewportEl = document.getElementById("canvasViewport");
+  if (canvasViewportEl) canvasViewportEl.addEventListener("scroll", onImgViewportScrollOrResize, { passive: true });
+  window.addEventListener("resize", onImgViewportScrollOrResize, { passive: true });
+
+  box._cleanup = () => {
+    if (canvasViewportEl) canvasViewportEl.removeEventListener("scroll", onImgViewportScrollOrResize);
+    window.removeEventListener("resize", onImgViewportScrollOrResize);
+  };
 }
 
 function handleImageFileForPlacement(file, targetLeftPx, targetTopPx) {
@@ -3489,6 +3654,7 @@ function setupToolActions() {
     blockEditorContainer.style.display = "none";
     interactiveOverlay.querySelectorAll(".text-block-highlight").forEach(d => d.classList.remove("selected"));
     state.selectedBlock = null;
+    cancelTransformBox(false);
   });
 
   btnApplyBlockEdit.addEventListener("click", async () => {
@@ -5598,8 +5764,9 @@ function setupKeyboardShortcuts() {
       }
     }
 
-    // Escape: Close modals, search bar, wysiwyg, cancel measurements, deselect form field
+    // Escape: Close modals, search bar, wysiwyg, cancel transform box, cancel measurements, deselect form field
     if (e.key === "Escape") {
+      if (activeTransformBox) cancelTransformBox(false);
       if (activeWysiwygBox) cancelWysiwyg();
       closeSearchBar();
       cancelMeasurement();
