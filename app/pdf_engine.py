@@ -6,6 +6,8 @@ Provides high-performance, private, and secure PDF manipulation.
 
 import io
 import os
+import shutil
+import datetime
 import zipfile
 from typing import List, Dict, Any, Optional, Tuple, Union
 import pymupdf as fitz
@@ -3463,5 +3465,500 @@ class PDFEngine:
             return output.getvalue()
         finally:
             doc.close()
+
+    # =========================================================================
+    # ADVANCED FORMAT CONVERSIONS (SmallPDF Parity)
+    # =========================================================================
+
+    @staticmethod
+    def convert_pdf_to_docx(pdf_bytes: bytes) -> bytes:
+        """Convert PDF bytes into a formatted Word (.docx) document."""
+        import tempfile
+        from pdf2docx import Converter
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
+            tmp_in.write(pdf_bytes)
+            tmp_pdf = tmp_in.name
+        tmp_docx = tmp_pdf.rsplit(".", 1)[0] + ".docx"
+
+        try:
+            cv = Converter(tmp_pdf)
+            cv.convert(tmp_docx)
+            cv.close()
+            with open(tmp_docx, "rb") as f:
+                return f.read()
+        finally:
+            if os.path.exists(tmp_pdf):
+                try:
+                    os.unlink(tmp_pdf)
+                except Exception:
+                    pass
+            if os.path.exists(tmp_docx):
+                try:
+                    os.unlink(tmp_docx)
+                except Exception:
+                    pass
+
+    @staticmethod
+    def convert_pdf_to_excel(pdf_bytes: bytes) -> bytes:
+        """Convert PDF tables and content into a multi-sheet Microsoft Excel (.xlsx) workbook."""
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        wb = openpyxl.Workbook()
+        ws_default = wb.active
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+        cell_font = Font(name="Calibri", size=10)
+        thin_border = Border(
+            left=Side(style='thin', color='E5E7EB'),
+            right=Side(style='thin', color='E5E7EB'),
+            top=Side(style='thin', color='E5E7EB'),
+            bottom=Side(style='thin', color='E5E7EB')
+        )
+
+        try:
+            for pno, page in enumerate(doc):
+                sheet_title = f"Page {pno + 1}"
+                ws = ws_default if pno == 0 else wb.create_sheet(title=sheet_title)
+                ws.title = sheet_title
+
+                tabs = page.find_tables()
+                row_offset = 1
+
+                if tabs.tables:
+                    for t_idx, tab in enumerate(tabs.tables):
+                        extracted = tab.extract()
+                        if not extracted:
+                            continue
+                        if t_idx > 0:
+                            row_offset += 2
+
+                        title_cell = ws.cell(row=row_offset, column=1, value=f"Table {t_idx + 1} (Page {pno + 1})")
+                        title_cell.font = Font(bold=True, size=11, color="1E3A8A")
+                        row_offset += 1
+
+                        for r_idx, row_vals in enumerate(extracted):
+                            cur_row = row_offset + r_idx
+                            for c_idx, val in enumerate(row_vals):
+                                cell = ws.cell(row=cur_row, column=c_idx + 1, value=str(val) if val is not None else "")
+                                if r_idx == 0:
+                                    cell.font = header_font
+                                    cell.fill = header_fill
+                                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                                else:
+                                    cell.font = cell_font
+                                    cell.border = thin_border
+                                    cell.alignment = Alignment(vertical="center")
+                        row_offset += len(extracted) + 1
+                else:
+                    blocks = page.get_text("blocks")
+                    blocks.sort(key=lambda b: (round(b[1], -1), b[0]))
+                    cur_row = 1
+                    for b in blocks:
+                        text = b[4].strip()
+                        if not text:
+                            continue
+                        lines = text.split("\n")
+                        for l in lines:
+                            if l.strip():
+                                ws.cell(row=cur_row, column=1, value=l.strip()).font = cell_font
+                                cur_row += 1
+
+                for col in ws.columns:
+                    max_len = max(len(str(cell.value or "")) for cell in col)
+                    col_letter = get_column_letter(col[0].column)
+                    ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 60)
+
+            out = io.BytesIO()
+            wb.save(out)
+            return out.getvalue()
+        finally:
+            doc.close()
+
+    @staticmethod
+    def convert_pdf_to_pptx(pdf_bytes: bytes) -> bytes:
+        """Convert PDF into a PowerPoint presentation (.pptx) with matching slide aspect ratios."""
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        prs = Presentation()
+        blank_layout = prs.slide_layouts[6]
+
+        try:
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                w_in = page.rect.width / 72.0
+                h_in = page.rect.height / 72.0
+                prs.slide_width = Inches(w_in)
+                prs.slide_height = Inches(h_in)
+
+                slide = prs.slides.add_slide(blank_layout)
+
+                pix = page.get_pixmap(dpi=150)
+                img_data = pix.tobytes("png")
+                img_stream = io.BytesIO(img_data)
+                slide.shapes.add_picture(img_stream, Inches(0), Inches(0), Inches(w_in), Inches(h_in))
+
+                blocks = page.get_text("blocks")
+                for b in blocks:
+                    txt = b[4].strip()
+                    if not txt:
+                        continue
+                    bx0, by0, bx1, by1 = b[:4]
+                    left = Inches(bx0 / 72.0)
+                    top = Inches(by0 / 72.0)
+                    width = Inches(max(0.5, (bx1 - bx0) / 72.0))
+                    height = Inches(max(0.3, (by1 - by0) / 72.0))
+                    tx_box = slide.shapes.add_textbox(left, top, width, height)
+                    tf = tx_box.text_frame
+                    tf.word_wrap = True
+                    tf.text = txt
+                    for p in tf.paragraphs:
+                        p.font.size = Pt(10)
+
+            out = io.BytesIO()
+            prs.save(out)
+            return out.getvalue()
+        finally:
+            doc.close()
+
+    @staticmethod
+    def convert_docx_to_pdf(docx_bytes: bytes) -> bytes:
+        """Convert Word (.docx) document into a high-quality PDF using ReportLab with soffice fallback."""
+        import subprocess, tempfile
+        from docx import Document
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle
+        from reportlab.lib import colors
+
+        soffice_path = shutil.which("soffice") or shutil.which("libreoffice")
+        if soffice_path:
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_in:
+                tmp_in.write(docx_bytes)
+                tmp_docx = tmp_in.name
+            out_dir = os.path.dirname(tmp_docx)
+            try:
+                proc = subprocess.run(
+                    [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", out_dir, tmp_docx],
+                    capture_output=True, timeout=60
+                )
+                if proc.returncode == 0:
+                    pdf_path = tmp_docx.rsplit(".", 1)[0] + ".pdf"
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, "rb") as f:
+                            data = f.read()
+                        os.unlink(pdf_path)
+                        return data
+            except Exception:
+                pass
+            finally:
+                if os.path.exists(tmp_docx):
+                    try:
+                        os.unlink(tmp_docx)
+                    except Exception:
+                        pass
+
+        doc = Document(io.BytesIO(docx_bytes))
+        out_buf = io.BytesIO()
+        pdf_doc = SimpleDocTemplate(out_buf, pagesize=letter, leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54)
+
+        styles = getSampleStyleSheet()
+        normal = styles["Normal"]
+        h1 = styles["Heading1"]
+        h2 = styles["Heading2"]
+        h3 = styles["Heading3"]
+
+        story = []
+        for p in doc.paragraphs:
+            text = p.text.strip()
+            if not text:
+                story.append(Spacer(1, 8))
+                continue
+            style_name = p.style.name.lower() if p.style else ""
+            if "heading 1" in style_name:
+                story.append(Paragraph(text, h1))
+            elif "heading 2" in style_name:
+                story.append(Paragraph(text, h2))
+            elif "heading 3" in style_name:
+                story.append(Paragraph(text, h3))
+            else:
+                story.append(Paragraph(text, normal))
+            story.append(Spacer(1, 6))
+
+        for table in doc.tables:
+            data = []
+            for row in table.rows:
+                r_data = [cell.text.strip() for cell in row.cells]
+                data.append(r_data)
+            if data:
+                t = RLTable(data)
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F3F4F6')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#111827')),
+                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,-1), 9),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                    ('TOPPADDING', (0,0), (-1,-1), 4),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#D1D5DB')),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 10))
+
+        if not story:
+            story.append(Paragraph("(Empty Document)", normal))
+
+        pdf_doc.build(story)
+        return out_buf.getvalue()
+
+    @staticmethod
+    def convert_excel_to_pdf(excel_bytes: bytes) -> bytes:
+        """Convert Excel (.xlsx/.xls) workbook into a multi-page formatted PDF."""
+        import openpyxl
+        from reportlab.lib.pagesizes import letter, landscape
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle, PageBreak
+        from reportlab.lib import colors
+
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=True)
+        out_buf = io.BytesIO()
+
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'ExcelSheetTitle',
+            parent=styles['Heading2'],
+            fontName='Helvetica-Bold',
+            fontSize=13,
+            textColor=colors.HexColor('#1F2937'),
+            spaceAfter=8
+        )
+        cell_style = ParagraphStyle(
+            'ExcelCell',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=8,
+            leading=10
+        )
+
+        story = []
+        is_first_sheet = True
+
+        for sheetname in wb.sheetnames:
+            ws = wb[sheetname]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                continue
+
+            if not is_first_sheet:
+                story.append(PageBreak())
+            is_first_sheet = False
+
+            story.append(Paragraph(f"Worksheet: {sheetname}", title_style))
+            story.append(Spacer(1, 6))
+
+            table_data = []
+            for r in rows:
+                if any(v is not None and str(v).strip() != "" for v in r):
+                    str_row = [Paragraph(str(v) if v is not None else "", cell_style) for v in r]
+                    table_data.append(str_row)
+
+            if table_data:
+                t = RLTable(table_data)
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2563EB')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,-1), 8),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+                    ('TOPPADDING', (0,0), (-1,-1), 3),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E7EB')),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')])
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 12))
+
+        if not story:
+            story.append(Paragraph("(Empty Workbook)", styles["Normal"]))
+
+        doc = SimpleDocTemplate(out_buf, pagesize=landscape(letter), leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+        doc.build(story)
+        return out_buf.getvalue()
+
+    @staticmethod
+    def convert_pptx_to_pdf(pptx_bytes: bytes) -> bytes:
+        """Convert PowerPoint presentation (.pptx) into a landscape PDF."""
+        import subprocess, tempfile
+        from pptx import Presentation
+        from reportlab.lib.pagesizes import letter, landscape
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib import colors
+
+        soffice_path = shutil.which("soffice") or shutil.which("libreoffice")
+        if soffice_path:
+            with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tmp_in:
+                tmp_in.write(pptx_bytes)
+                tmp_pptx = tmp_in.name
+            out_dir = os.path.dirname(tmp_pptx)
+            try:
+                proc = subprocess.run(
+                    [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", out_dir, tmp_pptx],
+                    capture_output=True, timeout=60
+                )
+                if proc.returncode == 0:
+                    pdf_path = tmp_pptx.rsplit(".", 1)[0] + ".pdf"
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, "rb") as f:
+                            data = f.read()
+                        os.unlink(pdf_path)
+                        return data
+            except Exception:
+                pass
+            finally:
+                if os.path.exists(tmp_pptx):
+                    try:
+                        os.unlink(tmp_pptx)
+                    except Exception:
+                        pass
+
+        prs = Presentation(io.BytesIO(pptx_bytes))
+        out_buf = io.BytesIO()
+        slide_w = prs.slide_width.inches * 72.0 if hasattr(prs.slide_width, 'inches') else 792.0
+        slide_h = prs.slide_height.inches * 72.0 if hasattr(prs.slide_height, 'inches') else 612.0
+        pagesize = (slide_w, slide_h) if (slide_w and slide_h) else landscape(letter)
+
+        doc = SimpleDocTemplate(out_buf, pagesize=pagesize, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'SlideTitle',
+            parent=styles['Heading1'],
+            fontName='Helvetica-Bold',
+            fontSize=18,
+            textColor=colors.HexColor('#1E3A8A'),
+            spaceAfter=12
+        )
+        body_style = ParagraphStyle(
+            'SlideBody',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=11,
+            leading=15,
+            spaceAfter=6
+        )
+
+        story = []
+        for s_idx, slide in enumerate(prs.slides):
+            if s_idx > 0:
+                story.append(PageBreak())
+
+            story.append(Paragraph(f"Slide {s_idx + 1}", ParagraphStyle('SlidePill', fontName='Helvetica-Bold', fontSize=9, textColor=colors.HexColor('#6B7280'), spaceAfter=4)))
+
+            slide_texts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for p in shape.text_frame.paragraphs:
+                        txt = p.text.strip()
+                        if txt:
+                            slide_texts.append(txt)
+
+            if slide_texts:
+                story.append(Paragraph(slide_texts[0], title_style))
+                for line in slide_texts[1:]:
+                    story.append(Paragraph(f"&bull; {line}", body_style))
+            else:
+                story.append(Paragraph("(Slide content)", body_style))
+
+            story.append(Spacer(1, 20))
+
+        if not story:
+            story.append(Paragraph("(Empty Presentation)", body_style))
+
+        doc.build(story)
+        return out_buf.getvalue()
+
+    @staticmethod
+    def convert_pdf_to_pdfa(pdf_bytes: bytes, conformance: str = "2b") -> bytes:
+        """Convert standard PDF into archival PDF/A compliant document (PDF/A-1b or PDF/A-2b)."""
+        import subprocess, tempfile
+
+        gs_path = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
+        if gs_path:
+            pdfa_code = "1" if "1" in conformance else "2"
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
+                tmp_in.write(pdf_bytes)
+                in_path = tmp_in.name
+            out_path = in_path.replace(".pdf", "_pdfa.pdf")
+            try:
+                proc = subprocess.run([
+                    gs_path,
+                    f"-dPDFA={pdfa_code}",
+                    "-dBATCH", "-dNOPAUSE",
+                    "-sProcessColorModel=DeviceRGB",
+                    "-sDEVICE=pdfwrite",
+                    "-sPDFACompatibilityPolicy=1",
+                    f"-sOutputFile={out_path}",
+                    in_path
+                ], capture_output=True, timeout=60)
+                if proc.returncode == 0 and os.path.exists(out_path):
+                    with open(out_path, "rb") as f:
+                        data = f.read()
+                    return data
+            except Exception:
+                pass
+            finally:
+                if os.path.exists(in_path):
+                    try:
+                        os.unlink(in_path)
+                    except Exception:
+                        pass
+                if os.path.exists(out_path):
+                    try:
+                        os.unlink(out_path)
+                    except Exception:
+                        pass
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            part = "1" if "1" in conformance else "2"
+            conf = "B" if "b" in conformance.lower() else "A"
+            now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            xmp_template = f"""<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+        xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+        xmlns:xmp="http://ns.adobe.com/xap/1.0/">
+      <pdfaid:part>{part}</pdfaid:part>
+      <pdfaid:conformance>{conf}</pdfaid:conformance>
+      <xmp:ModifyDate>{now_iso}</xmp:ModifyDate>
+      <xmp:CreateDate>{now_iso}</xmp:CreateDate>
+      <pdf:Producer>PDF Studio Engine (PDF/A Compliant)</pdf:Producer>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"""
+
+            meta = doc.metadata or {}
+            meta["producer"] = "PDF Studio Engine"
+            meta["format"] = f"PDF/A-{part}{conf.lower()}"
+            doc.set_metadata(meta)
+            doc.set_xml_metadata(xmp_template)
+
+            out = io.BytesIO()
+            doc.save(out, garbage=3, deflate=True)
+            return out.getvalue()
+        finally:
+            doc.close()
+
 
 

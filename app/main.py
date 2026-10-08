@@ -1924,6 +1924,231 @@ async def convert_pdf_to_images(
         raise HTTPException(status_code=500, detail=f"Error converting PDF to images: {str(e)}")
 
 
+# --- COMPREHENSIVE CONVERSION ENDPOINTS (SmallPDF Parity) ---
+
+@app.get("/api/document/{doc_id}/convert-to-word")
+async def convert_document_to_word(doc_id: str):
+    """Convert open PDF document into formatted Word (.docx) file."""
+    doc = get_doc(doc_id)
+    try:
+        docx_bytes = PDFEngine.convert_pdf_to_docx(doc["current_bytes"])
+        base_name = os.path.splitext(doc["filename"])[0]
+        out_name = sanitize_filename(f"{base_name}.docx")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(docx_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to Word: {str(e)}")
+
+
+@app.get("/api/document/{doc_id}/convert-to-excel")
+async def convert_document_to_excel(doc_id: str):
+    """Convert open PDF document into multi-sheet Microsoft Excel (.xlsx) workbook."""
+    doc = get_doc(doc_id)
+    try:
+        excel_bytes = PDFEngine.convert_pdf_to_excel(doc["current_bytes"])
+        base_name = os.path.splitext(doc["filename"])[0]
+        out_name = sanitize_filename(f"{base_name}.xlsx")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(excel_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to Excel: {str(e)}")
+
+
+@app.get("/api/document/{doc_id}/convert-to-pptx")
+async def convert_document_to_pptx(doc_id: str):
+    """Convert open PDF document into Microsoft PowerPoint (.pptx) presentation."""
+    doc = get_doc(doc_id)
+    try:
+        pptx_bytes = PDFEngine.convert_pdf_to_pptx(doc["current_bytes"])
+        base_name = os.path.splitext(doc["filename"])[0]
+        out_name = sanitize_filename(f"{base_name}.pptx")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(pptx_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to PowerPoint: {str(e)}")
+
+
+@app.get("/api/document/{doc_id}/convert-to-pdfa")
+async def convert_document_to_pdfa(doc_id: str, level: str = Query("2b")):
+    """Convert open PDF into an archival PDF/A-compliant document."""
+    doc = get_doc(doc_id)
+    try:
+        pdfa_bytes = PDFEngine.convert_pdf_to_pdfa(doc["current_bytes"], conformance=level)
+        base_name = os.path.splitext(doc["filename"])[0]
+        out_name = sanitize_filename(f"{base_name}_pdfa.pdf")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(pdfa_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to PDF/A: {str(e)}")
+
+
+@app.post("/api/convert-pdf-to-word")
+async def direct_convert_pdf_to_word(file: UploadFile = File(...)):
+    """Upload a PDF file and directly convert & download as Word (.docx)."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    contents = await file.read()
+    validate_pdf_binary(contents)
+    try:
+        docx_bytes = PDFEngine.convert_pdf_to_docx(contents)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}.docx")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(docx_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to Word: {str(e)}")
+
+
+@app.post("/api/convert-pdf-to-excel")
+async def direct_convert_pdf_to_excel(file: UploadFile = File(...)):
+    """Upload a PDF file and directly convert & download as Excel (.xlsx)."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    contents = await file.read()
+    validate_pdf_binary(contents)
+    try:
+        excel_bytes = PDFEngine.convert_pdf_to_excel(contents)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}.xlsx")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(excel_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to Excel: {str(e)}")
+
+
+@app.post("/api/convert-pdf-to-pptx")
+async def direct_convert_pdf_to_pptx(file: UploadFile = File(...)):
+    """Upload a PDF file and directly convert & download as PowerPoint (.pptx)."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    contents = await file.read()
+    validate_pdf_binary(contents)
+    try:
+        pptx_bytes = PDFEngine.convert_pdf_to_pptx(contents)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}.pptx")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(pptx_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to PowerPoint: {str(e)}")
+
+
+@app.post("/api/convert-pdf-to-pdfa")
+async def direct_convert_pdf_to_pdfa(file: UploadFile = File(...), level: str = Form("2b")):
+    """Upload a PDF file and directly convert & download as archival PDF/A."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    contents = await file.read()
+    validate_pdf_binary(contents)
+    try:
+        pdfa_bytes = PDFEngine.convert_pdf_to_pdfa(contents, conformance=level)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}_pdfa.pdf")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(pdfa_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PDF to PDF/A: {str(e)}")
+
+
+@app.post("/api/convert-docx-to-pdf")
+async def direct_convert_docx_to_pdf(file: UploadFile = File(...)):
+    """Convert Word (.docx) document into a high-quality PDF."""
+    if not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Only .docx Word documents are supported.")
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    try:
+        pdf_bytes = PDFEngine.convert_docx_to_pdf(contents)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}.pdf")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting Word to PDF: {str(e)}")
+
+
+@app.post("/api/convert-excel-to-pdf")
+async def direct_convert_excel_to_pdf(file: UploadFile = File(...)):
+    """Convert Excel (.xlsx/.xls) spreadsheet into a formatted PDF."""
+    if not (file.filename.lower().endswith(".xlsx") or file.filename.lower().endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Only .xlsx or .xls Excel files are supported.")
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    try:
+        pdf_bytes = PDFEngine.convert_excel_to_pdf(contents)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}.pdf")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting Excel to PDF: {str(e)}")
+
+
+@app.post("/api/convert-pptx-to-pdf")
+async def direct_convert_pptx_to_pdf(file: UploadFile = File(...)):
+    """Convert PowerPoint (.pptx) presentation into a landscape PDF."""
+    if not file.filename.lower().endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="Only .pptx PowerPoint presentations are supported.")
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    try:
+        pdf_bytes = PDFEngine.convert_pptx_to_pdf(contents)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}.pdf")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error converting PowerPoint to PDF: {str(e)}")
+
+
+
 @app.post("/api/document/{doc_id}/page-numbers")
 async def add_page_numbers(doc_id: str, req: PageNumberRequest):
     """Add dynamic page numbering across PDF."""
