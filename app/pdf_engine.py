@@ -174,115 +174,7 @@ class PDFEngine:
             image_data_url = f"data:image/jpeg;base64,{img_b64}"
             
             # 3. Extract text blocks (using the cohesive clustering engine)
-            text_dict = page.get_text("dict")
-            blocks_result = []
-            block_counter = 0
-
-            for b in text_dict.get("blocks", []):
-                if b.get("type") == 0:  # text block
-                    lines = b.get("lines", [])
-                    if not lines:
-                        continue
-                    
-                    valid_lines = []
-                    for line in lines:
-                        spans = line.get("spans", [])
-                        if not spans:
-                            continue
-                        line_text = "".join(s.get("text", "") for s in spans).strip()
-                        if line_text:
-                            valid_lines.append({
-                                "bbox": [round(c, 2) for c in line.get("bbox", [0, 0, 0, 0])],
-                                "text": line_text,
-                                "spans": spans
-                            })
-                    
-                    if not valid_lines:
-                        continue
-                    
-                    # Sort lines top-to-bottom, left-to-right for linear sweep clustering
-                    valid_lines.sort(key=lambda l: (round(l["bbox"][1], 1), round(l["bbox"][0], 1)))
-                    
-                    clusters = []
-                    current_cluster = [valid_lines[0]]
-                    
-                    for next_line in valid_lines[1:]:
-                        prev_line = current_cluster[-1]
-                        prev_y0, prev_y1 = prev_line["bbox"][1], prev_line["bbox"][3]
-                        next_y0, next_y1 = next_line["bbox"][1], next_line["bbox"][3]
-                        prev_h = max(4.0, prev_y1 - prev_y0)
-                        next_h = max(4.0, next_y1 - next_y0)
-                        avg_h = (prev_h + next_h) / 2.0
-                        
-                        has_y_overlap = False
-                        for existing in current_cluster:
-                            e_y0, e_y1 = existing["bbox"][1], existing["bbox"][3]
-                            overlap = max(0.0, min(e_y1, next_y1) - max(e_y0, next_y0))
-                            if overlap > 0.35 * min(e_y1 - e_y0, next_y1 - next_y0):
-                                has_y_overlap = True
-                                break
-                        
-                        dy = next_y0 - prev_y1
-                        is_nearby = dy < (avg_h * 1.6)
-                        
-                        if is_nearby and not has_y_overlap:
-                            current_cluster.append(next_line)
-                        else:
-                            clusters.append(current_cluster)
-                            current_cluster = [next_line]
-                    
-                    if current_cluster:
-                        clusters.append(current_cluster)
-                    
-                    for cluster in clusters:
-                        all_x0 = min(l["bbox"][0] for l in cluster)
-                        all_y0 = min(l["bbox"][1] for l in cluster)
-                        all_x1 = max(l["bbox"][2] for l in cluster)
-                        all_y1 = max(l["bbox"][3] for l in cluster)
-                        
-                        cluster_text = "\n".join(l["text"] for l in cluster)
-                        
-                        font_sizes = []
-                        font_names = []
-                        font_colors = []
-                        is_bold = False
-                        is_italic = False
-                        
-                        for l in cluster:
-                            for s in l["spans"]:
-                                font_sizes.append(s.get("size", 11.0))
-                                font_names.append(s.get("font", "Helvetica"))
-                                col = s.get("color", 0)
-                                if isinstance(col, int):
-                                    r = ((col >> 16) & 255) / 255.0
-                                    g = ((col >> 8) & 255) / 255.0
-                                    bl = (col & 255) / 255.0
-                                    font_colors.append([round(r, 3), round(g, 3), round(bl, 3)])
-                                elif isinstance(col, (list, tuple)):
-                                    font_colors.append([round(c, 3) for c in col])
-                                
-                                flags = s.get("flags", 0)
-                                if flags & 2 or "bold" in s.get("font", "").lower():
-                                    is_bold = True
-                                if flags & 1 or "italic" in s.get("font", "").lower() or "oblique" in s.get("font", "").lower():
-                                    is_italic = True
-
-                        avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 11.0
-                        primary_font = max(set(font_names), key=font_names.count) if font_names else "Helvetica"
-                        primary_color = font_colors[0] if font_colors else [0.0, 0.0, 0.0]
-
-                        blocks_result.append({
-                            "id": f"block_{page_number}_{block_counter}",
-                            "bbox": [round(all_x0, 2), round(all_y0, 2), round(all_x1, 2), round(all_y1, 2)],
-                            "text": cluster_text,
-                            "font_name": primary_font,
-                            "font_size": round(avg_font_size, 1),
-                            "color": primary_color,
-                            "is_bold": is_bold,
-                            "is_italic": is_italic,
-                            "lines": cluster
-                        })
-                        block_counter += 1
+            blocks_result = PDFEngine._extract_text_blocks_from_page(page, page_number)
 
             # 4. Extract annotations
             annots_list = []
@@ -379,12 +271,17 @@ class PDFEngine:
         try:
             page_idx = max(0, min(page_number - 1, len(doc) - 1))
             page = doc[page_idx]
-            
-            text_dict = page.get_text("dict")
-                
-            blocks_result = []
-            block_counter = 0
+            return PDFEngine._extract_text_blocks_from_page(page, page_number)
+        finally:
+            doc.close()
 
+    @staticmethod
+    def _extract_text_blocks_from_page(page: fitz.Page, page_number: int = 1) -> List[Dict[str, Any]]:
+        text_dict = page.get_text("dict")
+        blocks_result = []
+        block_counter = 0
+
+        try:
             for b in text_dict.get("blocks", []):
                 if b.get("type") == 0:  # 0 is text block
                     lines = b.get("lines", [])
@@ -422,7 +319,7 @@ class PDFEngine:
                         next_h = max(4.0, next_y1 - next_y0)
                         avg_h = (prev_h + next_h) / 2.0
                         
-                        # Check for vertical overlap / collision with any existing line in current_cluster:
+                        # 1. Check for vertical overlap / collision with any existing line in current_cluster:
                         has_y_overlap = False
                         for existing in current_cluster:
                             e_y0, e_y1 = existing["bbox"][1], existing["bbox"][3]
@@ -431,24 +328,45 @@ class PDFEngine:
                                 has_y_overlap = True
                                 break
                         
-                        # Check if next_line starts above previous line
+                        # 2. Check if next_line starts above previous line
                         is_backwards = next_y0 < (prev_y0 - 2.0)
                         
-                        # Check font size difference (> 1.8pt)
+                        # 3. Check font size difference (> 1.2pt threshold separates distinct headings/labels)
                         prev_sz = prev_line["spans"][0].get("size", 11.0) if prev_line["spans"] else 11.0
                         next_sz = next_line["spans"][0].get("size", 11.0) if next_line["spans"] else 11.0
-                        is_diff_size = abs(prev_sz - next_sz) > 1.8
+                        is_diff_size = abs(prev_sz - next_sz) > 1.2
                         
-                        # Check bold / style difference
-                        prev_bold = any(s.get("flags", 0) & 16 or "bold" in s.get("font", "").lower() for s in prev_line["spans"])
-                        next_bold = any(s.get("flags", 0) & 16 or "bold" in s.get("font", "").lower() for s in next_line["spans"])
+                        # 4. Check bold / italic / font style differences
+                        prev_bold = any(s.get("flags", 0) & 16 or "bold" in s.get("font", "").lower() or "black" in s.get("font", "").lower() for s in prev_line["spans"])
+                        next_bold = any(s.get("flags", 0) & 16 or "bold" in s.get("font", "").lower() or "black" in s.get("font", "").lower() for s in next_line["spans"])
                         is_diff_weight = prev_bold != next_bold
+
+                        prev_italic = any(s.get("flags", 0) & 2 or "italic" in s.get("font", "").lower() or "oblique" in s.get("font", "").lower() for s in prev_line["spans"])
+                        next_italic = any(s.get("flags", 0) & 2 or "italic" in s.get("font", "").lower() or "oblique" in s.get("font", "").lower() for s in next_line["spans"])
+                        is_diff_style = prev_italic != next_italic
                         
-                        # Check if vertical gap indicates a separate section / block (> 1.8 * line height)
+                        # 5. Check vertical gap / paragraph break
                         vertical_gap = next_y0 - prev_y1
-                        is_large_gap = vertical_gap > 1.8 * avg_h
+                        has_origin = bool(prev_line["spans"] and next_line["spans"] and prev_line["spans"][0].get("origin") and next_line["spans"][0].get("origin"))
+                        if has_origin:
+                            baseline_step = next_line["spans"][0]["origin"][1] - prev_line["spans"][0]["origin"][1]
+                            is_large_gap = baseline_step > 1.55 * avg_h or baseline_step < 0.65 * avg_h
+                        else:
+                            is_large_gap = vertical_gap > 0.45 * avg_h or vertical_gap < -2.0
                         
-                        if has_y_overlap or is_backwards or is_diff_size or is_diff_weight:
+                        # 6. Check list / bullet marker separation
+                        list_pattern = r"^[\u2022\u25cf\u25cb\u25aa\u25ba\-\*\ufffd]\s*|^\(?\d+[\.\:\)]\s*|^\(?[a-zA-Z][\.\:\)]\s*|^(Line|Item|Step|Section|Part|Chapter)\s+\d+[\:\.]?\s*"
+                        is_bullet = bool(re.match(list_pattern, next_line["text"].strip(), re.IGNORECASE))
+                        is_prev_bullet = bool(re.match(list_pattern, prev_line["text"].strip(), re.IGNORECASE))
+                        is_bullet_boundary = is_bullet or is_prev_bullet
+
+                        # 7. Check sentence/statement completion: completed sentences, labels, and form fields do not wrap
+                        is_prev_terminated = bool(re.search(r"[\.\:\;\!\?]\s*$", prev_line["text"]))
+                        
+                        # 8. Check horizontal indentation jump (> 16pt)
+                        is_indent_jump = abs(next_line["bbox"][0] - prev_line["bbox"][0]) > 16.0
+                        
+                        if has_y_overlap or is_backwards or is_diff_size or is_diff_weight or is_diff_style or is_large_gap or is_bullet_boundary or is_prev_terminated or is_indent_jump:
                             clusters.append(current_cluster)
                             current_cluster = [next_line]
                         else:
@@ -506,8 +424,8 @@ class PDFEngine:
                         block_counter += 1
 
             return blocks_result
-        finally:
-            doc.close()
+        except Exception:
+            return blocks_result
 
     @staticmethod
     def _normalize_font_name(font_name: str, is_bold: bool = False, is_italic: bool = False) -> str:
@@ -600,12 +518,6 @@ class PDFEngine:
                     target_pages = list(doc)
 
                 for page in target_pages:
-                    # Extract existing text blocks on this page to protect any overlapping neighbors
-                    try:
-                        existing_page_blocks = PDFEngine.get_page_text_blocks(pdf_bytes, page.number + 1)
-                    except Exception:
-                        existing_page_blocks = []
-
                     # List of tuples: (redact_rect, target_insert_rect, calculated_font_size)
                     replacements: List[Tuple[fitz.Rect, fitz.Rect, float]] = []
 
@@ -625,109 +537,97 @@ class PDFEngine:
                             calc_size = font_size if font_size else max(8.0, target_rect.height * 0.8)
                             replacements.append((redact_rect, target_rect, calc_size))
 
-                    # Identify any distinct neighbor text blocks on this page that physically overlap our redaction areas
-                    # Protects collided / overlapping blocks from accidental letter erasure during both move and in-place edit
                     lines_data = edit.get("lines")
-                    overlapping_neighbors: List[Dict[str, Any]] = []
-                    if bbox or lines_data or new_bbox:
-                        redact_regions = []
-                        if lines_data and isinstance(lines_data, list) and len(lines_data) > 0:
-                            for l in lines_data:
-                                if "bbox" in l and len(l["bbox"]) == 4:
-                                    redact_regions.append(fitz.Rect(l["bbox"]))
-                        if not redact_regions:
-                            for r_rect, _, _ in replacements:
-                                redact_regions.append(fitz.Rect(r_rect))
-
-                        for r_rect in redact_regions:
-                            for b in existing_page_blocks:
-                                b_rect = fitz.Rect(b["bbox"])
-                                # If b is the exact block being edited, skip it
-                                if max(abs(b["bbox"][i] - r_rect[i]) for i in range(4)) <= 3.5:
-                                    continue
-                                if bbox and len(bbox) == 4 and max(abs(b["bbox"][i] - bbox[i]) for i in range(4)) <= 3.5:
-                                    continue
-                                if search_text and search_text in b.get("text", ""):
-                                    continue
-                                
-                                # Require real substantial geometric overlap (>= 15% area) to consider it a true collision
-                                inter = r_rect & b_rect
-                                if not inter.is_empty:
-                                    min_area = min(r_rect.get_area(), b_rect.get_area())
-                                    if min_area > 0 and (inter.get_area() / min_area) >= 0.15:
-                                        if b not in overlapping_neighbors:
-                                            overlapping_neighbors.append(b)
-
-                    # 1. Cleanly remove old text without leaving opaque redaction rectangles or wiping line art/images
-                    fill_c = bg_color if bg_color else None
+                    target_redact_boxes: List[List[float]] = []
                     if lines_data and isinstance(lines_data, list) and len(lines_data) > 0:
                         for l in lines_data:
-                            if "bbox" in l and len(l["bbox"]) == 4:
-                                lb = l["bbox"]
-                                page.add_redact_annot(fitz.Rect(lb[0] - 1.0, lb[1] - 1.0, lb[2] + 1.5, lb[3] + 1.5), fill=fill_c)
-                    else:
+                            if isinstance(l, dict) and "bbox" in l and len(l["bbox"]) == 4:
+                                target_redact_boxes.append(list(l["bbox"]))
+                    if not target_redact_boxes:
                         for redact_rect, _, _ in replacements:
-                            page.add_redact_annot(fitz.Rect(redact_rect.x0 - 1.0, redact_rect.y0 - 1.0, redact_rect.x1 + 1.5, redact_rect.y1 + 1.5), fill=fill_c)
+                            target_redact_boxes.append([redact_rect.x0, redact_rect.y0, redact_rect.x1, redact_rect.y1])
 
-                    # Also redact overlapping neighbors with padding so no sliced letter residues remain
-                    for n in overlapping_neighbors:
-                        nb = n["bbox"]
-                        page.add_redact_annot(fitz.Rect(nb[0] - 1.0, nb[1] - 1.0, nb[2] + 1.5, nb[3] + 1.5), fill=None)
-                    
-                    if replacements or lines_data or overlapping_neighbors:
+                    # Extract existing text lines on this page to identify preserved lines
+                    existing_lines = []
+                    try:
+                        td = page.get_text("rawdict")
+                        for b in td.get("blocks", []):
+                            if b.get("type") == 0:
+                                for l in b.get("lines", []):
+                                    if l.get("bbox") and len(l["bbox"]) == 4:
+                                        existing_lines.append(l)
+                    except Exception:
+                        existing_lines = []
+
+                    # Find preserved lines that must NOT be redacted or clipped
+                    preserved_lines = []
+                    for ex_l in existing_lines:
+                        ex_box = ex_l["bbox"]
+                        ex_rect = fitz.Rect(ex_box)
+                        is_target = False
+                        for t_box in target_redact_boxes:
+                            t_rect = fitz.Rect(t_box)
+                            if max(abs(ex_box[i] - t_box[i]) for i in range(4)) <= 3.0:
+                                is_target = True
+                                break
+                            inter = ex_rect & t_rect
+                            if not inter.is_empty and min(ex_rect.get_area(), t_rect.get_area()) > 0:
+                                if (inter.get_area() / min(ex_rect.get_area(), t_rect.get_area())) >= 0.70:
+                                    is_target = True
+                                    break
+                        if not is_target:
+                            preserved_lines.append(ex_l)
+
+                    # 1. Surgical redaction: strictly bound redaction boxes within target lines so adjacent lines never get clipped
+                    fill_c = bg_color if bg_color else None
+                    redacted_any = False
+                    for t_box in target_redact_boxes:
+                        x0, y0, x1, y1 = t_box[0], t_box[1], t_box[2], t_box[3]
+                        if x1 <= x0 or y1 <= y0:
+                            continue
+
+                        for pres in preserved_lines:
+                            pb = pres["bbox"]
+                            h_overlap = max(0.0, min(x1, pb[2]) - max(x0, pb[0]))
+                            if h_overlap > 1.0:
+                                if pb[1] < y0 or (pb[3] <= y1 and pb[1] < y1):
+                                    if pb[3] > y0:
+                                        y0 = max(y0, pb[3] + 0.05)
+                                if pb[3] > y1 or (pb[1] >= y0 and pb[3] > y0):
+                                    if pb[1] < y1:
+                                        y1 = min(y1, pb[1] - 0.05)
+
+                        if (y1 - y0) >= 1.0 and (x1 - x0) >= 1.0:
+                            safe_rect = fitz.Rect(x0, y0, x1, y1)
+                            page.add_redact_annot(safe_rect, fill=fill_c)
+                            redacted_any = True
+
+                    if redacted_any:
                         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
-                        # 2. Re-insert preserved overlapping neighbors cleanly at their original bboxes
-                        for n in overlapping_neighbors:
-                            n_text = n.get("text", "")
-                            if not n_text:
-                                continue
-                            n_lines = n.get("lines") or []
-                            n_sz = n.get("font_size") or n.get("avg_font_size") or 11.0
-                            n_font = PDFEngine._normalize_font_name(n.get("font_name", "helv"), is_bold=n.get("is_bold", False), is_italic=n.get("is_italic", False))
-                            n_col = n.get("color", [0, 0, 0])
-                            
-                            if n_lines and len(n_lines) > 0:
-                                for l in n_lines:
-                                    if "spans" in l and l["spans"]:
-                                        for s in l["spans"]:
-                                            if "origin" in s:
-                                                point = fitz.Point(s["origin"])
-                                                sz = s.get("size", 11.0)
-                                                f_name = s.get("font", "helv")
-                                                c_val = s.get("color", 0)
-                                                flags = s.get("flags", 0)
-                                                
-                                                r = ((c_val >> 16) & 255) / 255.0
-                                                g = ((c_val >> 8) & 255) / 255.0
-                                                bl = (c_val & 255) / 255.0
-                                                
-                                                is_bold = bool(flags & 16 or "bold" in f_name.lower() or "black" in f_name.lower())
-                                                is_italic = bool(flags & 2 or "italic" in f_name.lower() or "oblique" in f_name.lower())
-                                                n_font_norm = PDFEngine._normalize_font_name(f_name, is_bold=is_bold, is_italic=is_italic)
-                                                
-                                                page.insert_text(point, s.get("text", ""), fontsize=sz, fontname=n_font_norm, color=[r, g, bl])
-                                    else:
-                                        lb = l.get("bbox")
-                                        lt = l.get("text", "")
-                                        if lb and lt:
-                                            point = fitz.Point(lb[0], lb[1] + (lb[3] - lb[1]) * 0.82)
-                                            page.insert_text(point, lt, fontsize=n_sz, fontname=n_font, color=n_col)
-                            else:
-                                n_bbox = fitz.Rect(n["bbox"])
-                                page.insert_textbox(n_bbox, n_text, fontsize=n_sz, fontname=n_font, color=n_col)
+                    # 2. Insert replacement text with zero adjacent loss and pixel-perfect baseline
+                    for redact_rect, target_rect, sz in replacements:
+                        if not new_text:
+                            continue  # Pure redaction / deletion
 
-                        # 3. Insert replacement text with reliable baseline / textbox rendering and guaranteed zero truncation
-                        for _, target_rect, sz in replacements:
-                            if not new_text:
-                                continue  # Pure redaction/deletion
+                        lines_list = new_text.splitlines() or [new_text]
+                        is_multiline_mode = len(lines_list) > 1 or (lines_data and len(lines_data) > 1) or (target_rect.height > sz * 1.6 and len(new_text) > 35)
 
-                            lines_list = new_text.splitlines() or [new_text]
-                            if len(lines_list) > 1 or len(new_text) > 40:
-                                req_h = max(target_rect.height, sz * 1.35 * len(lines_list) + 8)
-                                req_w = max(target_rect.width + 30, target_rect.width * 1.15 + 10)
-                                render_rect = fitz.Rect(target_rect.x0, target_rect.y0, target_rect.x0 + req_w, target_rect.y0 + req_h)
-                                rc = page.insert_textbox(
+                        if is_multiline_mode:
+                            req_h = max(target_rect.height, sz * 1.35 * len(lines_list) + 6)
+                            req_w = max(target_rect.width + 15, target_rect.width * 1.05 + 5)
+                            render_rect = fitz.Rect(target_rect.x0, target_rect.y0, target_rect.x0 + req_w, target_rect.y0 + req_h)
+                            rc = page.insert_textbox(
+                                render_rect,
+                                new_text,
+                                fontsize=sz,
+                                fontname=font_name,
+                                color=text_color,
+                                align=align
+                            )
+                            if rc < 0:
+                                render_rect = fitz.Rect(render_rect.x0, render_rect.y0, render_rect.x1, render_rect.y1 + abs(rc) + 12)
+                                page.insert_textbox(
                                     render_rect,
                                     new_text,
                                     fontsize=sz,
@@ -735,43 +635,50 @@ class PDFEngine:
                                     color=text_color,
                                     align=align
                                 )
-                                if rc < 0:
-                                    # Auto-expand to fit complete text without truncation
-                                    render_rect = fitz.Rect(render_rect.x0, render_rect.y0, render_rect.x1, render_rect.y1 + abs(rc) + 12)
-                                    page.insert_textbox(
-                                        render_rect,
-                                        new_text,
-                                        fontsize=sz,
-                                        fontname=font_name,
-                                        color=text_color,
-                                        align=align
-                                    )
-                            else:
-                                line = lines_list[0]
-                                if align == 1:  # Center
-                                    try:
-                                        text_w = fitz.get_text_length(line, fontname=font_name, fontsize=sz)
-                                    except Exception:
-                                        text_w = len(line) * sz * 0.55
-                                    line_x = target_rect.x0 + max(0.0, (target_rect.width - text_w) / 2.0)
-                                elif align == 2:  # Right
-                                    try:
-                                        text_w = fitz.get_text_length(line, fontname=font_name, fontsize=sz)
-                                    except Exception:
-                                        text_w = len(line) * sz * 0.55
-                                    line_x = max(target_rect.x0, target_rect.x1 - text_w)
-                                else:  # Left
+                        else:
+                            line = lines_list[0]
+                            orig_origin = None
+                            if lines_data and isinstance(lines_data, list) and len(lines_data) > 0:
+                                first_l = lines_data[0]
+                                if isinstance(first_l, dict) and first_l.get("spans"):
+                                    for sp in first_l["spans"]:
+                                        if sp.get("origin"):
+                                            orig_origin = sp["origin"]
+                                            break
+
+                            dy = (target_rect.y0 - redact_rect.y0) if (target_rect != redact_rect) else 0.0
+
+                            if align == 1:  # Center
+                                try:
+                                    text_w = fitz.get_text_length(line, fontname=font_name, fontsize=sz)
+                                except Exception:
+                                    text_w = len(line) * sz * 0.55
+                                line_x = target_rect.x0 + max(0.0, (target_rect.width - text_w) / 2.0)
+                            elif align == 2:  # Right
+                                try:
+                                    text_w = fitz.get_text_length(line, fontname=font_name, fontsize=sz)
+                                except Exception:
+                                    text_w = len(line) * sz * 0.55
+                                line_x = max(target_rect.x0, target_rect.x1 - text_w)
+                            else:  # Left
+                                if orig_origin and (target_rect == redact_rect):
+                                    line_x = orig_origin[0]
+                                else:
                                     line_x = target_rect.x0
 
-                                baseline_y = target_rect.y0 + sz * 0.85
-                                point = fitz.Point(line_x, baseline_y)
-                                page.insert_text(
-                                    point,
-                                    line,
-                                    fontsize=sz,
-                                    fontname=font_name,
-                                    color=text_color
-                                )
+                            if orig_origin:
+                                baseline_y = orig_origin[1] + dy
+                            else:
+                                baseline_y = target_rect.y0 + sz * 0.82
+
+                            point = fitz.Point(line_x, baseline_y)
+                            page.insert_text(
+                                point,
+                                line,
+                                fontsize=sz,
+                                fontname=font_name,
+                                color=text_color
+                            )
 
             output = io.BytesIO()
             doc.save(output, garbage=3, deflate=True)
