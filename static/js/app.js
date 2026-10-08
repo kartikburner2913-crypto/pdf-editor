@@ -6631,6 +6631,141 @@ function setupFormatConversions() {
     }
   }
 
+  async function showConversionFeasibility(targetFormat) {
+    if (!state.docId) {
+      showToast("Please open a PDF document in the studio first.", "error");
+      return;
+    }
+
+    const modal = document.getElementById("conversionFeasibilityModal");
+    const loadingState = document.getElementById("feasibilityLoadingState");
+    const resultState = document.getElementById("feasibilityResultState");
+    const titleEl = document.getElementById("feasibilityModalTitle");
+    const targetLabel = document.getElementById("feasibilityTargetLabel");
+    const iconBadge = document.getElementById("feasibilityHeaderIcon");
+    const badgeEl = document.getElementById("feasibilityBadge");
+    const scoreNumEl = document.getElementById("feasibilityScoreNumber");
+    const meterFill = document.getElementById("feasibilityMeterFill");
+    const inferenceEl = document.getElementById("feasibilityInferenceText");
+    const metricPages = document.getElementById("fMetricPages");
+    const metricOrientation = document.getElementById("fMetricOrientation");
+    const metricTables = document.getElementById("fMetricTables");
+    const metricRows = document.getElementById("fMetricRows");
+    const metricHeadings = document.getElementById("fMetricHeadings");
+    const metricBullets = document.getElementById("fMetricBullets");
+    const metricDensity = document.getElementById("fMetricDensity");
+    const metricDataRatio = document.getElementById("fMetricDataRatio");
+    const headingsLabel = document.getElementById("fMetricHeadingsLabel");
+    const modeContainer = document.getElementById("feasibilityModeOptions");
+    const btnProceed = document.getElementById("btnProceedConversion");
+    const btnProceedText = document.getElementById("btnProceedConversionText");
+
+    const isPpt = targetFormat === "pptx";
+    const formatName = isPpt ? "PowerPoint (.pptx)" : "Excel (.xlsx)";
+    const ext = isPpt ? "pptx" : "xlsx";
+
+    if (titleEl) titleEl.textContent = `${isPpt ? "PowerPoint" : "Excel"} Conversion Feasibility & Inference`;
+    if (targetLabel) targetLabel.textContent = `Analyzing "${escapeHtml(state.filename || 'document.pdf')}" layout structure`;
+
+    if (iconBadge) {
+      iconBadge.style.color = isPpt ? "#f59e0b" : "#10b981";
+      iconBadge.style.background = isPpt ? "rgba(245, 158, 11, 0.12)" : "rgba(16, 185, 129, 0.12)";
+    }
+
+    if (loadingState) loadingState.style.display = "flex";
+    if (resultState) resultState.style.display = "none";
+    if (btnProceed) btnProceed.disabled = true;
+    if (btnProceedText) btnProceedText.textContent = `Convert & Download ${isPpt ? 'PowerPoint' : 'Excel'}`;
+
+    if (modal) modal.classList.add("open");
+
+    try {
+      const res = await fetch(`/api/document/${state.docId}/conversion-feasibility?target=${targetFormat}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to inspect conversion feasibility");
+      }
+      const data = await res.json();
+
+      const m = data.metrics || {};
+      if (metricPages) metricPages.textContent = `${m.page_count || 1} ${m.page_count === 1 ? 'Page' : 'Pages'}`;
+      if (metricOrientation) metricOrientation.textContent = m.orientation || "Portrait";
+      if (metricTables) metricTables.textContent = `${m.tables_detected || 0} ${m.tables_detected === 1 ? 'Table' : 'Tables'}`;
+      if (metricRows) metricRows.textContent = `${m.total_table_rows || 0} Data Rows`;
+
+      if (isPpt) {
+        if (headingsLabel) headingsLabel.textContent = "Slide Headings";
+        if (metricHeadings) metricHeadings.textContent = `${m.headings_detected || 0} Headings`;
+        if (metricBullets) metricBullets.textContent = `${m.bullets_detected || 0} Bullets`;
+      } else {
+        if (headingsLabel) headingsLabel.textContent = "Data Columns";
+        if (metricHeadings) metricHeadings.textContent = `${m.total_table_cols || 0} Cols Max`;
+        if (metricBullets) metricBullets.textContent = `${m.page_count || 1} Worksheets`;
+      }
+
+      if (metricDensity) metricDensity.textContent = `${m.avg_words_per_page || 0} w/pg`;
+      if (metricDataRatio) metricDataRatio.textContent = `${m.tabular_data_ratio || '0%'} Tabular`;
+
+      const score = data.feasibility_score || 50;
+      const level = data.feasibility_level || "moderate";
+      if (scoreNumEl) scoreNumEl.textContent = `${score}%`;
+      if (meterFill) {
+        meterFill.style.width = `${score}%`;
+        meterFill.className = `feasibility-meter-fill meter-${level}`;
+      }
+
+      if (badgeEl) {
+        badgeEl.textContent = data.feasibility_label || `${level.toUpperCase()} FEASIBILITY`;
+        badgeEl.className = `badge ${level === 'high' ? 'badge-success' : (level === 'moderate' ? 'badge-warning' : 'badge-danger')}`;
+      }
+
+      if (inferenceEl) inferenceEl.textContent = data.inference || "Feasibility check completed.";
+
+      if (modeContainer) {
+        modeContainer.innerHTML = "";
+        const options = data.conversion_options || [];
+        options.forEach((opt) => {
+          const card = document.createElement("label");
+          card.className = `mode-option-card ${opt.default ? 'active' : ''}`;
+          card.innerHTML = `
+            <input type="radio" name="conversionModeRadio" value="${opt.id}" ${opt.default ? 'checked' : ''} class="mode-option-radio" />
+            <div class="mode-option-content">
+              <div class="mode-option-title">
+                <span>${escapeHtml(opt.name)}</span>
+                ${opt.default ? '<span class="badge badge-primary" style="font-size:10px; padding: 2px 6px;">Recommended</span>' : ''}
+              </div>
+              <p class="mode-option-desc">${escapeHtml(opt.description)}</p>
+            </div>
+          `;
+          card.addEventListener("click", () => {
+            document.querySelectorAll(".mode-option-card").forEach(c => c.classList.remove("active"));
+            card.classList.add("active");
+            const radio = card.querySelector("input[type='radio']");
+            if (radio) radio.checked = true;
+          });
+          modeContainer.appendChild(card);
+        });
+      }
+
+      if (btnProceed) {
+        btnProceed.disabled = false;
+        btnProceed.onclick = async () => {
+          const selectedRadio = document.querySelector("input[name='conversionModeRadio']:checked");
+          const mode = selectedRadio ? selectedRadio.value : (isPpt ? "structured" : "multi_sheet");
+          closeModal("conversionFeasibilityModal");
+          await exportActiveDoc(formatName, isPpt ? `convert-to-pptx?mode=${mode}` : `convert-to-excel?mode=${mode}`, ext);
+        };
+      }
+
+      if (loadingState) loadingState.style.display = "none";
+      if (resultState) resultState.style.display = "block";
+    } catch (err) {
+      if (loadingState) loadingState.style.display = "none";
+      showToast(err.message, "error");
+      closeModal("conversionFeasibilityModal");
+    }
+  }
+
   if (btnConvertToWord) {
     btnConvertToWord.addEventListener("click", () => {
       exportActiveDoc("Word (.docx)", "convert-to-word", "docx");
@@ -6639,13 +6774,13 @@ function setupFormatConversions() {
 
   if (btnConvertToExcel) {
     btnConvertToExcel.addEventListener("click", () => {
-      exportActiveDoc("Excel (.xlsx)", "convert-to-excel", "xlsx");
+      showConversionFeasibility("excel");
     });
   }
 
   if (btnConvertToPptx) {
     btnConvertToPptx.addEventListener("click", () => {
-      exportActiveDoc("PowerPoint (.pptx)", "convert-to-pptx", "pptx");
+      showConversionFeasibility("pptx");
     });
   }
 

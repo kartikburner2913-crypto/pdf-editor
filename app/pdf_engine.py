@@ -6,6 +6,7 @@ Provides high-performance, private, and secure PDF manipulation.
 
 import io
 import os
+import re
 import shutil
 import datetime
 import zipfile
@@ -3500,7 +3501,262 @@ class PDFEngine:
                     pass
 
     @staticmethod
-    def convert_pdf_to_excel(pdf_bytes: bytes) -> bytes:
+    def assess_conversion_feasibility(pdf_bytes: bytes, target_format: str = "pptx") -> Dict[str, Any]:
+        """Analyze PDF document structure, layouts, table boundaries, text density, and font hierarchy
+        to determine conversion feasibility, quality score, structural metrics, and provide clear inference."""
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            page_count = len(doc)
+            if page_count == 0:
+                return {
+                    "target_format": target_format,
+                    "feasibility_score": 0,
+                    "feasibility_level": "low",
+                    "feasibility_label": "Empty Document",
+                    "inference": "The document contains no pages to convert.",
+                    "metrics": {
+                        "page_count": 0,
+                        "orientation": "N/A",
+                        "avg_words_per_page": 0,
+                        "headings_detected": 0,
+                        "bullets_detected": 0,
+                        "tables_detected": 0,
+                        "total_table_rows": 0,
+                        "total_table_cols": 0,
+                        "images_detected": 0,
+                        "tabular_data_ratio": "0%"
+                    },
+                    "conversion_options": []
+                }
+
+            landscape_pages = 0
+            portrait_pages = 0
+            total_words = 0
+            total_headings = 0
+            total_bullets = 0
+            total_tables = 0
+            total_table_rows = 0
+            total_table_cols = 0
+            total_table_cells = 0
+            total_images = 0
+
+            for page in doc:
+                if page.rect.width > page.rect.height:
+                    landscape_pages += 1
+                else:
+                    portrait_pages += 1
+
+                total_images += len(page.get_images())
+
+                # Table structure inspection
+                tabs = page.find_tables()
+                if tabs and tabs.tables:
+                    total_tables += len(tabs.tables)
+                    for tab in tabs.tables:
+                        total_table_rows += tab.row_count
+                        total_table_cols = max(total_table_cols, tab.col_count)
+                        extracted = tab.extract()
+                        if extracted:
+                            for r in extracted:
+                                for cell in r:
+                                    if cell and str(cell).strip():
+                                        total_table_cells += 1
+
+                # Text hierarchy inspection
+                raw_text = page.get_text("text")
+                words = raw_text.split()
+                total_words += len(words)
+
+                lines = [ln.strip() for ln in raw_text.split("\n") if ln.strip()]
+                for ln in lines:
+                    if re.match(r"^[\u2022\u25cf\u25cb\u25aa\u25b8\-\*]|\d+[\.\)]\s+", ln):
+                        total_bullets += 1
+
+                d = page.get_text("dict")
+                page_has_heading = False
+                for b in d.get("blocks", []):
+                    if "lines" in b:
+                        for l in b["lines"]:
+                            for s in l.get("spans", []):
+                                stext = s.get("text", "").strip()
+                                ssize = s.get("size", 10)
+                                sflags = s.get("flags", 0)
+                                if len(stext) > 3 and (ssize >= 14 or (ssize >= 12 and (sflags & 2 or sflags & 16))):
+                                    if not page_has_heading:
+                                        total_headings += 1
+                                        page_has_heading = True
+                                        break
+                            if page_has_heading:
+                                break
+                    if page_has_heading:
+                        break
+
+            avg_words_per_page = round(total_words / max(page_count, 1), 1)
+            landscape_ratio = landscape_pages / max(page_count, 1)
+            orientation_desc = (
+                "Landscape" if landscape_ratio >= 0.8
+                else ("Portrait" if landscape_ratio <= 0.2
+                      else f"Mixed ({round(landscape_ratio * 100)}% Landscape)")
+            )
+            tabular_ratio_val = min(100, round((total_table_cells / max(total_words, 1)) * 100)) if total_table_cells > 0 else 0
+            tabular_data_ratio = f"{tabular_ratio_val}%"
+
+            target = target_format.lower().strip()
+            if target in ("excel", "xlsx", "sheet"):
+                score = 25
+                if total_tables >= page_count:
+                    score += 48
+                elif total_tables > 0:
+                    score += 35
+                else:
+                    score += 5
+
+                if total_table_rows >= 10:
+                    score += 15
+                elif total_table_rows > 0:
+                    score += 8
+
+                if tabular_ratio_val >= 40:
+                    score += 15
+                elif tabular_ratio_val > 0:
+                    score += 8
+
+                score = max(20, min(98, score))
+                level = "high" if score >= 70 else ("moderate" if score >= 45 else "low")
+                label = f"High Feasibility ({score}%)" if level == "high" else (f"Moderate Feasibility ({score}%)" if level == "moderate" else f"Low Feasibility ({score}%)")
+
+                if level == "high":
+                    inference = (
+                        f"Detected {total_tables} structured table(s) containing {total_table_rows} total rows and up to {total_table_cols} columns across {page_count} page(s). "
+                        f"Feasibility for Excel conversion is High ({score}%). "
+                        f"Tables will be cleanly mapped to formatted worksheets with styled header rows, grid borders, and auto-adjusted column widths."
+                    )
+                elif level == "moderate":
+                    inference = (
+                        f"Feasibility for Excel conversion is Moderate ({score}%). "
+                        f"Found {total_tables} table(s) with {total_table_rows} rows alongside freeform text. "
+                        f"Detected tables will be formatted as structured Excel tables, and remaining text lines will be neatly aligned into worksheet rows."
+                    )
+                else:
+                    inference = (
+                        f"No explicit tabular grid borders were detected across the {page_count} page(s). "
+                        f"Feasibility for Excel conversion is Low ({score}%). "
+                        f"Freeform paragraphs will be imported as line-by-line cell rows. "
+                        f"If this PDF contains borderless tables or scanned reports, consider using the Studio's 'Extract Table' tool or OCR first for precision boundary selection."
+                    )
+
+                conversion_options = [
+                    {
+                        "id": "multi_sheet",
+                        "name": "Multi-Sheet Workbook (Recommended)",
+                        "description": "Creates dedicated formatted worksheets for each document page with styled headers, zebra borders, and auto-fitted columns.",
+                        "default": True
+                    },
+                    {
+                        "id": "consolidated",
+                        "name": "Single Consolidated Sheet",
+                        "description": "Combines all detected tables and rows into a single continuous worksheet for unified data analysis and pivot tables.",
+                        "default": False
+                    }
+                ]
+            else:
+                # Default to PowerPoint (.pptx)
+                target = "pptx"
+                score = 50
+                if landscape_ratio >= 0.7:
+                    score += 22
+                elif landscape_ratio >= 0.3:
+                    score += 10
+                else:
+                    score += 2
+
+                if 15 <= avg_words_per_page <= 160:
+                    score += 18
+                elif 160 < avg_words_per_page <= 280:
+                    score += 8
+                elif avg_words_per_page > 280:
+                    score -= 8
+                elif avg_words_per_page < 15:
+                    score += 8
+
+                if total_headings >= page_count * 0.7:
+                    score += 15
+                elif total_headings > 0:
+                    score += 8
+
+                if total_bullets > 0:
+                    score += 5
+                if total_tables > 0:
+                    score += 5
+                if total_images > 0:
+                    score += 5
+
+                score = max(18, min(98, score))
+                level = "high" if score >= 75 else ("moderate" if score >= 50 else "low")
+                label = f"High Feasibility ({score}%)" if level == "high" else (f"Moderate Feasibility ({score}%)" if level == "moderate" else f"Limited Feasibility ({score}%)")
+
+                if level == "high":
+                    inference = (
+                        f"This document exhibits high PowerPoint presentation suitability across its {page_count} page(s). "
+                        f"Detected {total_headings} slide heading(s) with balanced text density ({avg_words_per_page} words/page in {orientation_desc} layout)"
+                        + (f" and {total_tables} structured table(s)" if total_tables > 0 else "") + ". "
+                        f"The converter will generate modern 16:9 widescreen slides with native title headers, structured bullet cards, and clean editable formatting without raster image artifacts."
+                    )
+                elif level == "moderate":
+                    inference = (
+                        f"Feasibility for PowerPoint conversion is Moderate ({score}%). "
+                        f"The document spans {page_count} page(s) with an average of {avg_words_per_page} words/page ({orientation_desc} layout). "
+                        f"The engine will structure paragraphs into presentation slide cards and extract available headers. "
+                        f"For dense sections, bullet points will be formatted automatically."
+                    )
+                else:
+                    inference = (
+                        f"Feasibility is Limited ({score}%). "
+                        f"This document contains high text density ({avg_words_per_page} words/page in {orientation_desc} orientation) resembling a continuous document or contract. "
+                        f"Converting to PowerPoint will lay out content across card containers, but Word (.docx) or PDF may be better suited for continuous reading."
+                    )
+
+                conversion_options = [
+                    {
+                        "id": "structured",
+                        "name": "Structured Presentation (Recommended)",
+                        "description": "Transforms PDF into native 16:9 widescreen slides with clean slide titles, styled bullet cards, and fully editable native PowerPoint tables.",
+                        "default": True
+                    },
+                    {
+                        "id": "hybrid",
+                        "name": "Visual Layout",
+                        "description": "Preserves exact PDF visual coordinates with native editable text boxes overlaying high-resolution graphics.",
+                        "default": False
+                    }
+                ]
+
+            return {
+                "target_format": target,
+                "feasibility_score": score,
+                "feasibility_level": level,
+                "feasibility_label": label,
+                "inference": inference,
+                "metrics": {
+                    "page_count": page_count,
+                    "orientation": orientation_desc,
+                    "avg_words_per_page": avg_words_per_page,
+                    "headings_detected": total_headings,
+                    "bullets_detected": total_bullets,
+                    "tables_detected": total_tables,
+                    "total_table_rows": total_table_rows,
+                    "total_table_cols": total_table_cols,
+                    "images_detected": total_images,
+                    "tabular_data_ratio": tabular_data_ratio,
+                    "estimated_slides": page_count
+                },
+                "conversion_options": conversion_options
+            }
+        finally:
+            doc.close()
+
+    @staticmethod
+    def convert_pdf_to_excel(pdf_bytes: bytes, mode: str = "multi_sheet") -> bytes:
         """Convert PDF tables and content into a multi-sheet Microsoft Excel (.xlsx) workbook."""
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -3521,20 +3777,27 @@ class PDFEngine:
         )
 
         try:
+            is_consolidated = (mode == "consolidated")
+            if is_consolidated:
+                ws_default.title = "Consolidated"
+                ws = ws_default
+                row_offset = 1
+
             for pno, page in enumerate(doc):
-                sheet_title = f"Page {pno + 1}"
-                ws = ws_default if pno == 0 else wb.create_sheet(title=sheet_title)
-                ws.title = sheet_title
+                if not is_consolidated:
+                    sheet_title = f"Page {pno + 1}"
+                    ws = ws_default if pno == 0 else wb.create_sheet(title=sheet_title)
+                    ws.title = sheet_title
+                    row_offset = 1
 
                 tabs = page.find_tables()
-                row_offset = 1
 
                 if tabs.tables:
                     for t_idx, tab in enumerate(tabs.tables):
                         extracted = tab.extract()
                         if not extracted:
                             continue
-                        if t_idx > 0:
+                        if t_idx > 0 or (is_consolidated and pno > 0):
                             row_offset += 2
 
                         title_cell = ws.cell(row=row_offset, column=1, value=f"Table {t_idx + 1} (Page {pno + 1})")
@@ -3557,7 +3820,10 @@ class PDFEngine:
                 else:
                     blocks = page.get_text("blocks")
                     blocks.sort(key=lambda b: (round(b[1], -1), b[0]))
-                    cur_row = 1
+                    if is_consolidated and pno > 0:
+                        row_offset += 2
+                    ws.cell(row=row_offset, column=1, value=f"Page {pno + 1} Content").font = Font(bold=True, size=11, color="1E3A8A")
+                    row_offset += 1
                     for b in blocks:
                         text = b[4].strip()
                         if not text:
@@ -3565,9 +3831,16 @@ class PDFEngine:
                         lines = text.split("\n")
                         for l in lines:
                             if l.strip():
-                                ws.cell(row=cur_row, column=1, value=l.strip()).font = cell_font
-                                cur_row += 1
+                                ws.cell(row=row_offset, column=1, value=l.strip()).font = cell_font
+                                row_offset += 1
 
+                if not is_consolidated:
+                    for col in ws.columns:
+                        max_len = max(len(str(cell.value or "")) for cell in col)
+                        col_letter = get_column_letter(col[0].column)
+                        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 60)
+
+            if is_consolidated:
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or "")) for cell in col)
                     col_letter = get_column_letter(col[0].column)
@@ -3580,46 +3853,255 @@ class PDFEngine:
             doc.close()
 
     @staticmethod
-    def convert_pdf_to_pptx(pdf_bytes: bytes) -> bytes:
-        """Convert PDF into a PowerPoint presentation (.pptx) with matching slide aspect ratios."""
+    def convert_pdf_to_pptx(pdf_bytes: bytes, mode: str = "structured") -> bytes:
+        """Convert PDF into a PowerPoint presentation (.pptx).
+        In 'structured' mode: generates clean 16:9 widescreen slides with native slide titles,
+        structured bullet cards, and native editable PowerPoint tables without raster artifacts.
+        In 'hybrid' mode: preserves exact coordinate positioning with overlay text boxes."""
         from pptx import Presentation
         from pptx.util import Inches, Pt
+        from pptx.dml.color import RGBColor
+        from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+        from pptx.enum.shapes import MSO_SHAPE
 
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         prs = Presentation()
         blank_layout = prs.slide_layouts[6]
 
         try:
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                w_in = page.rect.width / 72.0
-                h_in = page.rect.height / 72.0
-                prs.slide_width = Inches(w_in)
-                prs.slide_height = Inches(h_in)
+            if mode == "hybrid":
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    w_in = page.rect.width / 72.0
+                    h_in = page.rect.height / 72.0
+                    prs.slide_width = Inches(w_in)
+                    prs.slide_height = Inches(h_in)
 
-                slide = prs.slides.add_slide(blank_layout)
+                    slide = prs.slides.add_slide(blank_layout)
 
-                pix = page.get_pixmap(dpi=150)
-                img_data = pix.tobytes("png")
-                img_stream = io.BytesIO(img_data)
-                slide.shapes.add_picture(img_stream, Inches(0), Inches(0), Inches(w_in), Inches(h_in))
+                    pix = page.get_pixmap(dpi=150)
+                    img_data = pix.tobytes("png")
+                    img_stream = io.BytesIO(img_data)
+                    slide.shapes.add_picture(img_stream, Inches(0), Inches(0), Inches(w_in), Inches(h_in))
 
-                blocks = page.get_text("blocks")
-                for b in blocks:
-                    txt = b[4].strip()
-                    if not txt:
-                        continue
-                    bx0, by0, bx1, by1 = b[:4]
-                    left = Inches(bx0 / 72.0)
-                    top = Inches(by0 / 72.0)
-                    width = Inches(max(0.5, (bx1 - bx0) / 72.0))
-                    height = Inches(max(0.3, (by1 - by0) / 72.0))
-                    tx_box = slide.shapes.add_textbox(left, top, width, height)
-                    tf = tx_box.text_frame
-                    tf.word_wrap = True
-                    tf.text = txt
-                    for p in tf.paragraphs:
-                        p.font.size = Pt(10)
+                    blocks = page.get_text("blocks")
+                    for b in blocks:
+                        txt = b[4].strip()
+                        if not txt:
+                            continue
+                        bx0, by0, bx1, by1 = b[:4]
+                        left = Inches(bx0 / 72.0)
+                        top = Inches(by0 / 72.0)
+                        width = Inches(max(0.5, (bx1 - bx0) / 72.0))
+                        height = Inches(max(0.3, (by1 - by0) / 72.0))
+                        tx_box = slide.shapes.add_textbox(left, top, width, height)
+                        tf = tx_box.text_frame
+                        tf.word_wrap = True
+                        tf.text = txt
+                        for p in tf.paragraphs:
+                            p.font.size = Pt(10)
+            else:
+                # 'structured' mode: Native 16:9 presentation deck
+                prs.slide_width = Inches(13.333)
+                prs.slide_height = Inches(7.5)
+                total_pages = len(doc)
+
+                for page_num in range(total_pages):
+                    page = doc[page_num]
+                    slide = prs.slides.add_slide(blank_layout)
+
+                    tabs = page.find_tables()
+                    table_bboxes = [fitz.Rect(t.bbox) for t in tabs.tables] if tabs and tabs.tables else []
+
+                    raw_blocks = page.get_text("blocks")
+                    blocks = []
+                    for b in raw_blocks:
+                        b_rect = fitz.Rect(b[:4])
+                        overlaps_table = any(b_rect.intersects(tbox) for tbox in table_bboxes)
+                        if not overlaps_table and b[4].strip():
+                            blocks.append(b)
+
+                    blocks.sort(key=lambda b: (round(b[1], -1), b[0]))
+
+                    if page_num == 0 and len(blocks) <= 4 and not table_bboxes:
+                        # Cover / Title Slide
+                        band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.8), Inches(0.12), Inches(3.6))
+                        band.fill.solid()
+                        band.fill.fore_color.rgb = RGBColor(37, 99, 235)
+                        band.line.fill.background()
+
+                        tx_box = slide.shapes.add_textbox(Inches(1.2), Inches(1.8), Inches(11.0), Inches(3.6))
+                        tf = tx_box.text_frame
+                        tf.word_wrap = True
+
+                        main_title = blocks[0][4].strip().split('\n')[0] if blocks else "Presentation Title"
+                        p = tf.paragraphs[0]
+                        p.text = main_title
+                        p.font.size = Pt(36)
+                        p.font.bold = True
+                        p.font.color.rgb = RGBColor(30, 41, 59)
+                        p.space_after = Pt(14)
+
+                        for b in blocks[1:]:
+                            txt = b[4].strip()
+                            if txt:
+                                sp = tf.add_paragraph()
+                                sp.text = txt
+                                sp.font.size = Pt(16)
+                                sp.font.color.rgb = RGBColor(100, 116, 139)
+                                sp.space_after = Pt(8)
+                    else:
+                        # Content Slide
+                        title_text = f"Page {page_num + 1}"
+                        content_blocks = list(blocks)
+                        if blocks:
+                            first_text = blocks[0][4].strip().split('\n')[0]
+                            if len(first_text) < 120 and blocks[0][1] < page.rect.height * 0.45:
+                                title_text = first_text
+                                content_blocks = blocks[1:]
+
+                        title_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(11.733), Inches(0.85))
+                        tt_f = title_box.text_frame
+                        tt_f.word_wrap = True
+                        tp = tt_f.paragraphs[0]
+                        tp.text = title_text
+                        tp.font.size = Pt(24)
+                        tp.font.bold = True
+                        tp.font.color.rgb = RGBColor(30, 41, 59)
+
+                        rule = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.35), Inches(11.733), Inches(0.03))
+                        rule.fill.solid()
+                        rule.fill.fore_color.rgb = RGBColor(59, 130, 246)
+                        rule.line.fill.background()
+
+                        has_tables = len(table_bboxes) > 0
+                        has_content = len(content_blocks) > 0
+
+                        if has_tables and has_content:
+                            # 2-Column Split: Card on left, Table on right
+                            card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.55), Inches(5.6), Inches(5.1))
+                            card.fill.solid()
+                            card.fill.fore_color.rgb = RGBColor(248, 250, 252)
+                            card.line.color.rgb = RGBColor(226, 232, 240)
+                            ctf = card.text_frame
+                            ctf.word_wrap = True
+                            ctf.margin_left = Inches(0.3)
+                            ctf.margin_top = Inches(0.3)
+                            ctf.margin_right = Inches(0.3)
+
+                            p_idx = 0
+                            for cb in content_blocks:
+                                for line in cb[4].strip().split('\n'):
+                                    line_s = line.strip()
+                                    if not line_s:
+                                        continue
+                                    para = ctf.paragraphs[0] if p_idx == 0 else ctf.add_paragraph()
+                                    p_idx += 1
+                                    is_bullet = bool(re.match(r"^[\u2022\u25cf\u25cb\-\*\d+\.]\s*", line_s))
+                                    clean_line = re.sub(r"^[\u2022\u25cf\u25cb\-\*]\s*", "", line_s)
+                                    para.text = ('• ' + clean_line) if is_bullet else clean_line
+                                    para.font.size = Pt(13)
+                                    para.font.color.rgb = RGBColor(51, 65, 85)
+                                    para.space_after = Pt(8)
+
+                            for tab in tabs.tables:
+                                extracted = tab.extract()
+                                if not extracted:
+                                    continue
+                                num_r = min(len(extracted), 12)
+                                num_c = min(max(len(r) for r in extracted), 8)
+                                t_shape = slide.shapes.add_table(num_r, num_c, Inches(6.7), Inches(1.55), Inches(5.8), Inches(min(5.1, 0.4 * num_r + 0.3)))
+                                t_obj = t_shape.table
+                                for r_i in range(num_r):
+                                    r_vals = extracted[r_i]
+                                    for c_i in range(num_c):
+                                        c_val = str(r_vals[c_i]) if c_i < len(r_vals) and r_vals[c_i] is not None else ""
+                                        cell = t_obj.cell(r_i, c_i)
+                                        cell.text = c_val.strip()
+                                        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                                        if r_i == 0:
+                                            cell.fill.solid()
+                                            cell.fill.fore_color.rgb = RGBColor(37, 99, 235)
+                                            for cp in cell.text_frame.paragraphs:
+                                                cp.font.bold = True
+                                                cp.font.color.rgb = RGBColor(255, 255, 255)
+                                                cp.font.size = Pt(11)
+                                        else:
+                                            cell.fill.solid()
+                                            if r_i % 2 == 1:
+                                                cell.fill.fore_color.rgb = RGBColor(248, 250, 252)
+                                            else:
+                                                cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+                                            for cp in cell.text_frame.paragraphs:
+                                                cp.font.color.rgb = RGBColor(51, 65, 85)
+                                                cp.font.size = Pt(10)
+                                break
+                        elif has_tables and not has_content:
+                            for tab in tabs.tables:
+                                extracted = tab.extract()
+                                if not extracted:
+                                    continue
+                                num_r = min(len(extracted), 14)
+                                num_c = min(max(len(r) for r in extracted), 10)
+                                t_shape = slide.shapes.add_table(num_r, num_c, Inches(0.8), Inches(1.6), Inches(11.733), Inches(min(5.1, 0.35 * num_r + 0.4)))
+                                t_obj = t_shape.table
+                                for r_i in range(num_r):
+                                    r_vals = extracted[r_i]
+                                    for c_i in range(num_c):
+                                        c_val = str(r_vals[c_i]) if c_i < len(r_vals) and r_vals[c_i] is not None else ""
+                                        cell = t_obj.cell(r_i, c_i)
+                                        cell.text = c_val.strip()
+                                        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                                        if r_i == 0:
+                                            cell.fill.solid()
+                                            cell.fill.fore_color.rgb = RGBColor(37, 99, 235)
+                                            for cp in cell.text_frame.paragraphs:
+                                                cp.font.bold = True
+                                                cp.font.color.rgb = RGBColor(255, 255, 255)
+                                                cp.font.size = Pt(11)
+                                        else:
+                                            cell.fill.solid()
+                                            if r_i % 2 == 1:
+                                                cell.fill.fore_color.rgb = RGBColor(248, 250, 252)
+                                            else:
+                                                cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+                                            for cp in cell.text_frame.paragraphs:
+                                                cp.font.color.rgb = RGBColor(51, 65, 85)
+                                                cp.font.size = Pt(10)
+                                break
+                        else:
+                            card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.55), Inches(11.733), Inches(5.1))
+                            card.fill.solid()
+                            card.fill.fore_color.rgb = RGBColor(248, 250, 252)
+                            card.line.color.rgb = RGBColor(226, 232, 240)
+                            ctf = card.text_frame
+                            ctf.word_wrap = True
+                            ctf.margin_left = Inches(0.4)
+                            ctf.margin_top = Inches(0.4)
+                            ctf.margin_right = Inches(0.4)
+
+                            p_idx = 0
+                            for cb in content_blocks:
+                                for line in cb[4].strip().split('\n'):
+                                    line_s = line.strip()
+                                    if not line_s:
+                                        continue
+                                    para = ctf.paragraphs[0] if p_idx == 0 else ctf.add_paragraph()
+                                    p_idx += 1
+                                    is_bullet = bool(re.match(r"^[\u2022\u25cf\u25cb\-\*\d+\.]\s*", line_s))
+                                    clean_line = re.sub(r"^[\u2022\u25cf\u25cb\-\*]\s*", "", line_s)
+                                    para.text = ('• ' + clean_line) if is_bullet else clean_line
+                                    para.font.size = Pt(14)
+                                    para.font.color.rgb = RGBColor(51, 65, 85)
+                                    para.space_after = Pt(10)
+
+                        footer_box = slide.shapes.add_textbox(Inches(0.8), Inches(6.8), Inches(11.733), Inches(0.4))
+                        ftf = footer_box.text_frame
+                        ftp = ftf.paragraphs[0]
+                        ftp.text = f"Slide {page_num + 1} of {total_pages}"
+                        ftp.alignment = PP_ALIGN.RIGHT
+                        ftp.font.size = Pt(9)
+                        ftp.font.color.rgb = RGBColor(148, 163, 184)
 
             out = io.BytesIO()
             prs.save(out)

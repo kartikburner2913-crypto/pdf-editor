@@ -2172,6 +2172,105 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=2.9.6" defer></script>
+  <!-- Modal for Conversion Feasibility & Structure Inference -->
+  <div id="conversionFeasibilityModal" class="modal">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div id="feasibilityHeaderIcon" class="feasibility-icon-badge">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          </div>
+          <div>
+            <h3 id="feasibilityModalTitle" style="margin: 0; font-size: 16px;">Conversion Feasibility &amp; Structure Analysis</h3>
+            <span id="feasibilityTargetLabel" style="font-size: 11.5px; color: var(--text-muted);">Analyzing active document structure</span>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('conversionFeasibilityModal')">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Loading State -->
+        <div id="feasibilityLoadingState" class="feasibility-loading-state" style="display: none;">
+          <div class="spinner" style="margin-bottom: 12px;"></div>
+          <h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 600;">Analyzing Document Layout &amp; Feasibility...</h4>
+          <p style="margin: 0; font-size: 12px; color: var(--text-muted);">Evaluating slide hierarchies, heading spans, data table boundaries, and text density.</p>
+        </div>
+
+        <!-- Result State -->
+        <div id="feasibilityResultState" class="feasibility-result-state">
+          <!-- Feasibility Score Bar -->
+          <div class="feasibility-score-card">
+            <div class="feasibility-score-info">
+              <div>
+                <span class="feasibility-card-label">FEASIBILITY RATING</span>
+                <div class="feasibility-score-headline">
+                  <span id="feasibilityBadge" class="badge badge-success">High Feasibility</span>
+                  <span id="feasibilityScoreNumber" class="feasibility-pct">88%</span>
+                </div>
+              </div>
+              <div class="feasibility-meter-wrap">
+                <div class="feasibility-meter-track">
+                  <div id="feasibilityMeterFill" class="feasibility-meter-fill" style="width: 88%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Inference Narrative Box -->
+          <div class="feasibility-inference-card">
+            <div class="inference-header">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              <span>Structure &amp; Quality Inference</span>
+            </div>
+            <p id="feasibilityInferenceText" class="inference-text">
+              Document exhibits structured slide hierarchies with balanced content density.
+            </p>
+          </div>
+
+          <!-- Metrics Grid -->
+          <div class="feasibility-metrics-grid">
+            <div class="feasibility-metric-tile">
+              <span class="f-metric-label">Pages / Layout</span>
+              <strong id="fMetricPages" class="f-metric-val">1 Page</strong>
+              <span id="fMetricOrientation" class="f-metric-sub">Landscape</span>
+            </div>
+            <div class="feasibility-metric-tile">
+              <span class="f-metric-label">Tables Detected</span>
+              <strong id="fMetricTables" class="f-metric-val">0 Tables</strong>
+              <span id="fMetricRows" class="f-metric-sub">0 Data Rows</span>
+            </div>
+            <div class="feasibility-metric-tile">
+              <span id="fMetricHeadingsLabel" class="f-metric-label">Slide Headings</span>
+              <strong id="fMetricHeadings" class="f-metric-val">0 Headings</strong>
+              <span id="fMetricBullets" class="f-metric-sub">0 Bullets</span>
+            </div>
+            <div class="feasibility-metric-tile">
+              <span class="f-metric-label">Content Density</span>
+              <strong id="fMetricDensity" class="f-metric-val">0 w/pg</strong>
+              <span id="fMetricDataRatio" class="f-metric-sub">0% Tabular</span>
+            </div>
+          </div>
+
+          <!-- Conversion Mode Selector -->
+          <div class="conversion-mode-selector" style="margin-top: 14px;">
+            <label style="font-size: 12px; font-weight: 600; color: var(--text-main); margin-bottom: 8px; display: block;">Select Output Structure:</label>
+            <div class="mode-options-grid" id="feasibilityModeOptions">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('conversionFeasibilityModal')">Cancel</button>
+        <button id="btnProceedConversion" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span id="btnProceedConversionText">Convert &amp; Download</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js?v=2.9.7" defer></script>
 </body>
 </html>

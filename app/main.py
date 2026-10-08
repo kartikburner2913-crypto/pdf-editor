@@ -1944,12 +1944,37 @@ async def convert_document_to_word(doc_id: str):
         raise HTTPException(status_code=500, detail=f"Error converting PDF to Word: {str(e)}")
 
 
+@app.get("/api/document/{doc_id}/conversion-feasibility")
+async def get_conversion_feasibility(doc_id: str, target: str = Query("pptx")):
+    """Assess conversion feasibility and generate structural inference for active document."""
+    doc = get_doc(doc_id)
+    try:
+        feasibility = PDFEngine.assess_conversion_feasibility(doc["current_bytes"], target_format=target)
+        return feasibility
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Feasibility assessment failed: {str(e)}")
+
+
+@app.post("/api/check-conversion-feasibility")
+async def check_uploaded_conversion_feasibility(file: UploadFile = File(...), target: str = Form("pptx")):
+    """Assess conversion feasibility and generate structural inference for uploaded PDF file."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    contents = await file.read()
+    validate_pdf_binary(contents)
+    try:
+        feasibility = PDFEngine.assess_conversion_feasibility(contents, target_format=target)
+        return feasibility
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Feasibility assessment failed: {str(e)}")
+
+
 @app.get("/api/document/{doc_id}/convert-to-excel")
-async def convert_document_to_excel(doc_id: str):
+async def convert_document_to_excel(doc_id: str, mode: str = Query("multi_sheet")):
     """Convert open PDF document into multi-sheet Microsoft Excel (.xlsx) workbook."""
     doc = get_doc(doc_id)
     try:
-        excel_bytes = PDFEngine.convert_pdf_to_excel(doc["current_bytes"])
+        excel_bytes = PDFEngine.convert_pdf_to_excel(doc["current_bytes"], mode=mode)
         base_name = os.path.splitext(doc["filename"])[0]
         out_name = sanitize_filename(f"{base_name}.xlsx")
         encoded_name = urllib.parse.quote(out_name)
@@ -1963,11 +1988,11 @@ async def convert_document_to_excel(doc_id: str):
 
 
 @app.get("/api/document/{doc_id}/convert-to-pptx")
-async def convert_document_to_pptx(doc_id: str):
+async def convert_document_to_pptx(doc_id: str, mode: str = Query("structured")):
     """Convert open PDF document into Microsoft PowerPoint (.pptx) presentation."""
     doc = get_doc(doc_id)
     try:
-        pptx_bytes = PDFEngine.convert_pdf_to_pptx(doc["current_bytes"])
+        pptx_bytes = PDFEngine.convert_pdf_to_pptx(doc["current_bytes"], mode=mode)
         base_name = os.path.splitext(doc["filename"])[0]
         out_name = sanitize_filename(f"{base_name}.pptx")
         encoded_name = urllib.parse.quote(out_name)
@@ -2020,14 +2045,14 @@ async def direct_convert_pdf_to_word(file: UploadFile = File(...)):
 
 
 @app.post("/api/convert-pdf-to-excel")
-async def direct_convert_pdf_to_excel(file: UploadFile = File(...)):
+async def direct_convert_pdf_to_excel(file: UploadFile = File(...), mode: str = Query("multi_sheet")):
     """Upload a PDF file and directly convert & download as Excel (.xlsx)."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     contents = await file.read()
     validate_pdf_binary(contents)
     try:
-        excel_bytes = PDFEngine.convert_pdf_to_excel(contents)
+        excel_bytes = PDFEngine.convert_pdf_to_excel(contents, mode=mode)
         base_name = os.path.splitext(file.filename)[0]
         out_name = sanitize_filename(f"{base_name}.xlsx")
         encoded_name = urllib.parse.quote(out_name)
@@ -2041,14 +2066,14 @@ async def direct_convert_pdf_to_excel(file: UploadFile = File(...)):
 
 
 @app.post("/api/convert-pdf-to-pptx")
-async def direct_convert_pdf_to_pptx(file: UploadFile = File(...)):
+async def direct_convert_pdf_to_pptx(file: UploadFile = File(...), mode: str = Query("structured")):
     """Upload a PDF file and directly convert & download as PowerPoint (.pptx)."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     contents = await file.read()
     validate_pdf_binary(contents)
     try:
-        pptx_bytes = PDFEngine.convert_pdf_to_pptx(contents)
+        pptx_bytes = PDFEngine.convert_pdf_to_pptx(contents, mode=mode)
         base_name = os.path.splitext(file.filename)[0]
         out_name = sanitize_filename(f"{base_name}.pptx")
         encoded_name = urllib.parse.quote(out_name)

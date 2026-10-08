@@ -270,15 +270,19 @@ python-docx>=1.1.0
 
 ---
 
-### Plan A2: PDF to Excel Conversion [IMPLEMENTED]
+### Plan A2: PDF to Excel Conversion [IMPLEMENTED + FEASIBILITY INFERENCE]
 
-**Endpoint:** `/api/document/{id}/convert-to-excel` & `/api/convert-pdf-to-excel`
-**Status:** FULLY IMPLEMENTED (Verified with multi-sheet table extraction)
+**Endpoints:**
+- Feasibility & Inference: `GET /api/document/{id}/conversion-feasibility?target=excel` & `POST /api/check-conversion-feasibility`
+- Conversion: `GET /api/document/{id}/convert-to-excel?mode=multi_sheet|consolidated` & `POST /api/convert-pdf-to-excel`
+**Status:** FULLY IMPLEMENTED (Verified with multi-sheet and consolidated modes, feasibility rating, and structural inference)
 
 #### Technical Approach
-1. Multi-page table detection using PyMuPDF `find_tables()`
-2. Export structured cells with header styling and auto-width columns to `.xlsx` using `openpyxl`
-3. Layout text fallback for pages without explicit table borders
+1. **Pre-Flight Feasibility & Inference:** Evaluates total pages, detected tables (`page.find_tables()`), data rows, columns, and tabular density percentage before downloading.
+2. **Quality Modes:**
+   - `multi_sheet`: Generates dedicated worksheets per page with styled headers (`#2563EB`), zebra borders, and auto-fitted column widths.
+   - `consolidated`: Consolidates all document tables into a single master worksheet for immediate database/pivot import.
+3. Fallback text alignment for unbordered paragraphs.
 
 #### Dependencies
 ```
@@ -287,15 +291,23 @@ openpyxl>=3.1.2
 
 ---
 
-### Plan A3: PDF to PowerPoint Conversion [IMPLEMENTED]
+### Plan A3: PDF to PowerPoint Conversion [IMPLEMENTED + STRUCTURED SLIDE SYNTHESIS]
 
-**Endpoint:** `/api/document/{doc_id}/convert-to-pptx` & `/api/convert-pdf-to-pptx`
-**Status:** FULLY IMPLEMENTED (Verified with python-pptx)
+**Endpoints:**
+- Feasibility & Inference: `GET /api/document/{doc_id}/conversion-feasibility?target=pptx` & `POST /api/check-conversion-feasibility`
+- Conversion: `GET /api/document/{doc_id}/convert-to-pptx?mode=structured|hybrid` & `POST /api/convert-pdf-to-pptx`
+**Status:** FULLY IMPLEMENTED (Verified with native 16:9 widescreen presentation synthesis, title banners, bullet hierarchy cards, and native editable PPT tables)
 
 #### Technical Approach
-1. python-pptx library creates dynamic slide decks matching PDF page dimensions
-2. Renders high-DPI (150 DPI) page visuals as slide pictures
-3. Injects extractable text boxes for searchability and editing in PowerPoint
+1. **Pre-Flight Feasibility & Inference:** Inspects orientation (landscape vs. portrait), page count, heading hierarchy, bullet frequency, table boundaries, and text density. Provides quantitative score (0-100%) and narrative inference explaining expected quality before downloading.
+2. **Structured Presentation Mode (Recommended):**
+   - Synthesizes 16:9 widescreen slides (`13.333"` x `7.5"`).
+   - Generates sleek Cover Slide (page 1) with Royal Blue accent band, 36pt title, and subtitles.
+   - Content Slides: 24pt Bold slide title headers, blue divider rules, and slide numbering footer (`Slide X of N`).
+   - Native PowerPoint Tables (`slide.shapes.add_table`): Blue headers (`#2563EB`), white bold text, and zebra striping.
+   - Bullet Points: Rounded container cards with styled bullets (`•`), subheaders, and clean typography.
+   - Zero raster screenshots or flat image overlays.
+3. **Visual Hybrid Mode:** Retains exact PDF coordinate spatial layout with background visuals for graphics-heavy documents.
 
 #### Dependencies
 ```

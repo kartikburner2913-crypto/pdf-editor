@@ -220,3 +220,94 @@ class TestFormatConversions:
         assert pdfa_res.status_code == 200
         assert "application/pdf" in pdfa_res.headers.get("content-type", "")
         assert pdfa_res.content.startswith(b"%PDF")
+
+        # 5. Conversion Feasibility Assessment API
+        feasibility_ppt_res = client.get(f"/api/document/{doc_id}/conversion-feasibility?target=pptx")
+        assert feasibility_ppt_res.status_code == 200
+        ppt_meta = feasibility_ppt_res.json()
+        assert ppt_meta["target_format"] == "pptx"
+        assert 0 <= ppt_meta["feasibility_score"] <= 100
+        assert "inference" in ppt_meta and len(ppt_meta["inference"]) > 10
+        assert "metrics" in ppt_meta
+        assert len(ppt_meta["conversion_options"]) >= 2
+
+        feasibility_xls_res = client.get(f"/api/document/{doc_id}/conversion-feasibility?target=excel")
+        assert feasibility_xls_res.status_code == 200
+        xls_meta = feasibility_xls_res.json()
+        assert xls_meta["target_format"] == "excel"
+        assert "inference" in xls_meta
+
+        # 6. Direct Upload Feasibility Assessment
+        check_res = client.post(
+            "/api/check-conversion-feasibility",
+            files={"file": ("check.pdf", pdf_bytes, "application/pdf")},
+            data={"target": "pptx"}
+        )
+        assert check_res.status_code == 200
+        assert check_res.json()["target_format"] == "pptx"
+
+    def test_structured_pptx_generation(self):
+        """Verify structured PowerPoint outputs 16:9 widescreen presentation with native shapes and tables."""
+        # Create a document with a title and a table
+        doc = fitz.open()
+        p1 = doc.new_page(width=792, height=612)
+        p1.insert_text((50, 60), "Quarterly Business Review 2026", fontsize=24)
+        p1.insert_text((50, 100), "Strategic Initiatives and Accomplishments", fontsize=16)
+
+        p2 = doc.new_page(width=792, height=612)
+        p2.insert_text((50, 60), "Key Operational Highlights", fontsize=22)
+        p2.insert_text((50, 110), "• Successfully deployed new core infrastructure", fontsize=13)
+        p2.insert_text((50, 135), "• Reduced p99 query latency by 45%", fontsize=13)
+
+        # Draw a table grid
+        p2.draw_rect(fitz.Rect(50, 200, 450, 300), color=(0, 0, 0), width=1)
+        p2.draw_line(fitz.Point(50, 240), fitz.Point(450, 240), color=(0, 0, 0), width=1)
+        p2.draw_line(fitz.Point(200, 200), fitz.Point(200, 300), color=(0, 0, 0), width=1)
+        p2.insert_text((60, 225), "Category")
+        p2.insert_text((210, 225), "Metric")
+        p2.insert_text((60, 275), "Uptime")
+        p2.insert_text((210, 275), "99.99%")
+
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        # 1. Check Feasibility
+        feasibility = PDFEngine.assess_conversion_feasibility(pdf_bytes, "pptx")
+        assert feasibility["feasibility_score"] >= 75
+        assert feasibility["feasibility_level"] == "high"
+        assert "PowerPoint" in feasibility["inference"]
+
+        # 2. Structured PPTX generation
+        pptx_bytes = PDFEngine.convert_pdf_to_pptx(pdf_bytes, mode="structured")
+        assert len(pptx_bytes) > 0
+        prs = Presentation(io.BytesIO(pptx_bytes))
+        assert len(prs.slides) == 2
+        # Verify 16:9 widescreen dimensions (13.333 inches = 12192000 EMUs)
+        assert round(prs.slide_width.inches, 2) == 13.33
+        assert round(prs.slide_height.inches, 1) == 7.5
+
+        # Check slide 1 has title shape
+        slide1_text = " ".join(shape.text for shape in prs.slides[0].shapes if shape.has_text_frame)
+        assert "Quarterly Business Review" in slide1_text
+
+        # Check slide 2 has native table shape
+        has_table_shape = any(shape.has_table for shape in prs.slides[1].shapes)
+        assert has_table_shape
+
+    def test_excel_conversion_modes(self):
+        """Verify multi-sheet and consolidated Excel conversion modes."""
+        pdf_bytes = create_sample_pdf(3)
+
+        # 1. Multi-sheet mode (default)
+        excel_multi = PDFEngine.convert_pdf_to_excel(pdf_bytes, mode="multi_sheet")
+        wb_multi = openpyxl.load_workbook(io.BytesIO(excel_multi))
+        assert len(wb_multi.sheetnames) == 3
+        assert "Page 1" in wb_multi.sheetnames
+        assert "Page 2" in wb_multi.sheetnames
+        assert "Page 3" in wb_multi.sheetnames
+
+        # 2. Consolidated mode
+        excel_consolidated = PDFEngine.convert_pdf_to_excel(pdf_bytes, mode="consolidated")
+        wb_cons = openpyxl.load_workbook(io.BytesIO(excel_consolidated))
+        assert len(wb_cons.sheetnames) == 1
+        assert "Consolidated" in wb_cons.sheetnames

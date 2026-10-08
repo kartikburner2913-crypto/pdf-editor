@@ -4463,4 +4463,204 @@ textarea.form-overlay-widget {
   flex-shrink: 0;
 }
 
+/* ==========================================================================
+   Conversion Feasibility & Structure Inference Styles
+   ========================================================================== */
+
+.feasibility-icon-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-light);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.feasibility-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.feasibility-score-card {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 14px;
+}
+
+.feasibility-card-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.feasibility-score-headline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.feasibility-pct {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+}
+
+.feasibility-meter-track {
+  width: 100%;
+  height: 7px;
+  background-color: #e2e8f0;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.feasibility-meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%);
+  transition: width 0.4s ease;
+}
+
+.feasibility-meter-fill.meter-high {
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+}
+
+.feasibility-meter-fill.meter-moderate {
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+}
+
+.feasibility-meter-fill.meter-low {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+.feasibility-inference-card {
+  background: rgba(37, 99, 235, 0.04);
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+
+.inference-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e40af;
+  margin-bottom: 6px;
+}
+
+.inference-text {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.feasibility-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.feasibility-metric-tile {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.f-metric-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.f-metric-val {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.f-metric-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.mode-options-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mode-option-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mode-option-card:hover {
+  border-color: var(--primary-border);
+  background: var(--bg-hover);
+}
+
+.mode-option-card.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.mode-option-radio {
+  margin-top: 3px;
+  cursor: pointer;
+}
+
+.mode-option-content {
+  flex: 1;
+}
+
+.mode-option-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.mode-option-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
 
