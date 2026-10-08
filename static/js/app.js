@@ -193,7 +193,6 @@ document.addEventListener("DOMContentLoaded", () => {
   setupKeyboardShortcuts();
   setupAdvancedFeatures();
   setupPdfCompressionFeature();
-  setupFormatConversions();
 });
 
 // Theme Toggle
@@ -6526,6 +6525,24 @@ function setupFormatConversions() {
   const btnConvertImagesToPdf = document.getElementById("btnConvertImagesToPdf");
   const btnExportPdfImagesZip = document.getElementById("btnExportPdfImagesZip");
 
+  // Document export buttons
+  const btnConvertToWord = document.getElementById("btnConvertToWord");
+  const btnConvertToExcel = document.getElementById("btnConvertToExcel");
+  const btnConvertToPptx = document.getElementById("btnConvertToPptx");
+  const btnConvertToPdfa = document.getElementById("btnConvertToPdfa");
+
+  // Office to PDF buttons & inputs
+  const inputWordToPdf = document.getElementById("inputWordToPdf");
+  const btnConvertWordToPdf = document.getElementById("btnConvertWordToPdf");
+
+  const inputExcelToPdf = document.getElementById("inputExcelToPdf");
+  const btnConvertExcelToPdf = document.getElementById("btnConvertExcelToPdf");
+
+  const inputPptxToPdf = document.getElementById("inputPptxToPdf");
+  const btnConvertPptxToPdf = document.getElementById("btnConvertPptxToPdf");
+
+  let isConverting = false;
+
   if (imagesToPdfInput && imagesToPdfFileList) {
     imagesToPdfInput.addEventListener("change", (e) => {
       imagesToPdfFileList.innerHTML = "";
@@ -6540,9 +6557,11 @@ function setupFormatConversions() {
 
   if (btnConvertImagesToPdf) {
     btnConvertImagesToPdf.addEventListener("click", async () => {
+      if (isConverting) return;
       if (!imagesToPdfInput.files || imagesToPdfInput.files.length === 0) {
         return showToast("Please select at least one image file.", "error");
       }
+      isConverting = true;
       setLoading(true, "Converting images to PDF...");
       const formData = new FormData();
       Array.from(imagesToPdfInput.files).forEach(f => formData.append("files", f));
@@ -6557,6 +6576,7 @@ function setupFormatConversions() {
       } catch (err) {
         showToast(err.message, "error");
       } finally {
+        isConverting = false;
         setLoading(false);
       }
     });
@@ -6564,7 +6584,9 @@ function setupFormatConversions() {
 
   if (btnExportPdfImagesZip) {
     btnExportPdfImagesZip.addEventListener("click", async () => {
+      if (isConverting) return;
       if (!state.docId) return showToast("No document loaded", "error");
+      isConverting = true;
       const dpi = document.getElementById("exportImageDpi")?.value || 150;
       const fmt = document.getElementById("exportImageFormat")?.value || "png";
       setLoading(true, "Rendering pages to high-res images ZIP...");
@@ -6577,8 +6599,108 @@ function setupFormatConversions() {
       } catch (err) {
         showToast(err.message, "error");
       } finally {
+        isConverting = false;
         setLoading(false);
       }
+    });
+  }
+
+  async function exportActiveDoc(formatName, endpoint, ext) {
+    if (isConverting) return;
+    if (!state.docId) {
+      showToast("Please open a PDF document in the studio first.", "error");
+      return;
+    }
+    isConverting = true;
+    const baseName = (state.filename || "document").replace(/\.[^/.]+$/, "");
+    setLoading(true, `Converting PDF to ${formatName}...`);
+    try {
+      const res = await fetch(`/api/document/${state.docId}/${endpoint}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Failed to convert document to ${formatName}`);
+      }
+      const blob = await res.blob();
+      downloadBlob(blob, `${baseName}.${ext}`);
+      showToast(`${formatName} conversion complete!`, "success");
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      isConverting = false;
+      setLoading(false);
+    }
+  }
+
+  if (btnConvertToWord) {
+    btnConvertToWord.addEventListener("click", () => {
+      exportActiveDoc("Word (.docx)", "convert-to-word", "docx");
+    });
+  }
+
+  if (btnConvertToExcel) {
+    btnConvertToExcel.addEventListener("click", () => {
+      exportActiveDoc("Excel (.xlsx)", "convert-to-excel", "xlsx");
+    });
+  }
+
+  if (btnConvertToPptx) {
+    btnConvertToPptx.addEventListener("click", () => {
+      exportActiveDoc("PowerPoint (.pptx)", "convert-to-pptx", "pptx");
+    });
+  }
+
+  if (btnConvertToPdfa) {
+    btnConvertToPdfa.addEventListener("click", () => {
+      exportActiveDoc("PDF/A", "convert-to-pdfa?level=2b", "pdf");
+    });
+  }
+
+  async function convertOfficeFile(inputEl, endpoint, targetName) {
+    if (isConverting) return;
+    if (!inputEl || !inputEl.files || inputEl.files.length === 0) {
+      showToast("Please choose a file to convert.", "error");
+      return;
+    }
+    const file = inputEl.files[0];
+    const baseName = file.name.replace(/\.[^/.]+$/, "");
+    isConverting = true;
+    setLoading(true, `Converting ${file.name} to PDF...`);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(endpoint, { method: "POST", body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Conversion to PDF failed`);
+      }
+      const blob = await res.blob();
+      downloadBlob(blob, `${baseName}.pdf`);
+      showToast(`Successfully converted ${file.name} to PDF!`, "success");
+      inputEl.value = "";
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      isConverting = false;
+      setLoading(false);
+    }
+  }
+
+  if (btnConvertWordToPdf && inputWordToPdf) {
+    btnConvertWordToPdf.addEventListener("click", () => {
+      convertOfficeFile(inputWordToPdf, "/api/convert-docx-to-pdf", "Word");
+    });
+  }
+
+  if (btnConvertExcelToPdf && inputExcelToPdf) {
+    btnConvertExcelToPdf.addEventListener("click", () => {
+      convertOfficeFile(inputExcelToPdf, "/api/convert-excel-to-pdf", "Excel");
+    });
+  }
+
+  if (btnConvertPptxToPdf && inputPptxToPdf) {
+    btnConvertPptxToPdf.addEventListener("click", () => {
+      convertOfficeFile(inputPptxToPdf, "/api/convert-pptx-to-pdf", "PowerPoint");
     });
   }
 }
@@ -7204,119 +7326,6 @@ function setupPdfCompressionFeature() {
     });
   }
 }
-
-// ==========================================================================
-// Format Conversion Studio (Word, Excel, PowerPoint, PDF/A)
-// ==========================================================================
-function setupFormatConversions() {
-  const btnConvertToWord = document.getElementById("btnConvertToWord");
-  const btnConvertToExcel = document.getElementById("btnConvertToExcel");
-  const btnConvertToPptx = document.getElementById("btnConvertToPptx");
-  const btnConvertToPdfa = document.getElementById("btnConvertToPdfa");
-
-  const inputWordToPdf = document.getElementById("inputWordToPdf");
-  const btnConvertWordToPdf = document.getElementById("btnConvertWordToPdf");
-
-  const inputExcelToPdf = document.getElementById("inputExcelToPdf");
-  const btnConvertExcelToPdf = document.getElementById("btnConvertExcelToPdf");
-
-  const inputPptxToPdf = document.getElementById("inputPptxToPdf");
-  const btnConvertPptxToPdf = document.getElementById("btnConvertPptxToPdf");
-
-  async function exportActiveDoc(formatName, endpoint, ext) {
-    if (!state.docId) {
-      showToast("Please open a PDF document in the studio first.", "error");
-      return;
-    }
-    const baseName = (state.filename || "document").replace(/\.[^/.]+$/, "");
-    setLoading(true, `Converting PDF to ${formatName}...`);
-    try {
-      const res = await fetch(`/api/document/${state.docId}/${endpoint}`);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Failed to convert document to ${formatName}`);
-      }
-      const blob = await res.blob();
-      downloadBlob(blob, `${baseName}.${ext}`);
-      showToast(`${formatName} conversion complete!`, "success");
-    } catch (err) {
-      showToast(err.message, "error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (btnConvertToWord) {
-    btnConvertToWord.addEventListener("click", () => {
-      exportActiveDoc("Word (.docx)", "convert-to-word", "docx");
-    });
-  }
-
-  if (btnConvertToExcel) {
-    btnConvertToExcel.addEventListener("click", () => {
-      exportActiveDoc("Excel (.xlsx)", "convert-to-excel", "xlsx");
-    });
-  }
-
-  if (btnConvertToPptx) {
-    btnConvertToPptx.addEventListener("click", () => {
-      exportActiveDoc("PowerPoint (.pptx)", "convert-to-pptx", "pptx");
-    });
-  }
-
-  if (btnConvertToPdfa) {
-    btnConvertToPdfa.addEventListener("click", () => {
-      exportActiveDoc("PDF/A", "convert-to-pdfa?level=2b", "pdf");
-    });
-  }
-
-  async function convertOfficeFile(inputEl, endpoint, targetName) {
-    if (!inputEl || !inputEl.files || inputEl.files.length === 0) {
-      showToast("Please choose a file to convert.", "error");
-      return;
-    }
-    const file = inputEl.files[0];
-    const baseName = file.name.replace(/\.[^/.]+$/, "");
-    setLoading(true, `Converting ${file.name} to PDF...`);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await fetch(endpoint, { method: "POST", body: formData });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Conversion to PDF failed`);
-      }
-      const blob = await res.blob();
-      downloadBlob(blob, `${baseName}.pdf`);
-      showToast(`Successfully converted ${file.name} to PDF!`, "success");
-      inputEl.value = "";
-    } catch (err) {
-      showToast(err.message, "error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (btnConvertWordToPdf && inputWordToPdf) {
-    btnConvertWordToPdf.addEventListener("click", () => {
-      convertOfficeFile(inputWordToPdf, "/api/convert-docx-to-pdf", "Word");
-    });
-  }
-
-  if (btnConvertExcelToPdf && inputExcelToPdf) {
-    btnConvertExcelToPdf.addEventListener("click", () => {
-      convertOfficeFile(inputExcelToPdf, "/api/convert-excel-to-pdf", "Excel");
-    });
-  }
-
-  if (btnConvertPptxToPdf && inputPptxToPdf) {
-    btnConvertPptxToPdf.addEventListener("click", () => {
-      convertOfficeFile(inputPptxToPdf, "/api/convert-pptx-to-pdf", "PowerPoint");
-    });
-  }
-}
-
 
 // Zero-Retention Security: Scrub session from server RAM/disk when user navigates away
 window.addEventListener("beforeunload", () => {
