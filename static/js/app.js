@@ -4555,9 +4555,20 @@ function setupToolActions() {
     }
   }
 
+  let isAddingActiveDoc = false;
   function addActiveDocumentToMergeQueue() {
     if (!state.docId) {
       showToast("No active document is currently loaded in PDF Studio.", "warning");
+      return;
+    }
+
+    if (isAddingActiveDoc) return;
+    isAddingActiveDoc = true;
+    setTimeout(() => { isAddingActiveDoc = false; }, 350);
+
+    const alreadyInQueue = mergeState.files.some(f => f.isCurrentDoc && f.docId === state.docId);
+    if (alreadyInQueue) {
+      showToast("Active document is already in the merge queue.", "info");
       return;
     }
 
