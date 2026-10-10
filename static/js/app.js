@@ -4442,43 +4442,655 @@ function setupToolActions() {
     }
   });
 
-  // 11. Merge PDFs
-  mergeFileInput.addEventListener("change", (e) => {
-    if (e.target.files) {
-      mergeFileList.innerHTML = Array.from(e.target.files).map((f, i) => `
-        <div class="file-queue-item">
-          <span>${i + 1}. ${f.name}</span>
-          <small>${(f.size / 1024).toFixed(1)} KB</small>
-        </div>
-      `).join("");
-    }
-  });
+  // ==========================================================================
+  // B4. Merge PDFs - Visual Organizer & Interactive Reorder Engine
+  // ==========================================================================
 
-  btnExecuteMerge.addEventListener("click", async () => {
-    const files = mergeFileInput.files;
-    if (!files || files.length === 0) {
-      showToast("Please select PDF files to merge.", "error");
+  const mergeState = {
+    files: [], // Array of { id, file, filename, size, pageCount, thumbnail, rotation, isCurrentDoc }
+    draggedIndex: null,
+    modalDraggedIndex: null
+  };
+
+  function formatMergeBytes(bytes) {
+    if (!bytes || bytes <= 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  }
+
+  function getMergeTotalPages() {
+    return mergeState.files.reduce((sum, f) => sum + (f.pageCount || 1), 0);
+  }
+
+  function getMergeTotalSize() {
+    return mergeState.files.reduce((sum, f) => sum + (f.size || 0), 0);
+  }
+
+  function updateMergeSummaries() {
+    const totalFiles = mergeState.files.length;
+    const totalPages = getMergeTotalPages();
+    const totalBytes = getMergeTotalSize();
+
+    // Sidebar summary
+    const summaryEl = document.getElementById("mergeQueueSummary");
+    const summaryText = document.getElementById("mergeSummaryText");
+    const summarySize = document.getElementById("mergeSummarySize");
+    const emptyState = document.getElementById("mergeEmptyQueueState");
+
+    if (summaryEl && summaryText && summarySize) {
+      if (totalFiles > 0) {
+        summaryEl.style.display = "flex";
+        summaryText.textContent = `${totalFiles} file${totalFiles > 1 ? "s" : ""} • ${totalPages} total page${totalPages > 1 ? "s" : ""}`;
+        summarySize.textContent = formatMergeBytes(totalBytes);
+        if (emptyState) emptyState.style.display = "none";
+      } else {
+        summaryEl.style.display = "none";
+        if (emptyState) emptyState.style.display = "block";
+      }
+    }
+
+    // Modal stats badge
+    const modalStats = document.getElementById("mergeModalStatsBadge");
+    if (modalStats) {
+      modalStats.textContent = totalFiles > 0
+        ? `${totalFiles} files • ${totalPages} pages • ${formatMergeBytes(totalBytes)}`
+        : "0 files queued";
+    }
+  }
+
+  async function inspectAndQueuePdfFiles(files) {
+    if (!files || files.length === 0) return;
+    const filesArray = Array.from(files);
+    let addedCount = 0;
+
+    setLoading(true, "Inspecting PDF documents...");
+    try {
+      for (const file of filesArray) {
+        if (!file.name.toLowerCase().endsWith(".pdf")) {
+          showToast(`Skipped "${file.name}" (not a PDF).`, "warning");
+          continue;
+        }
+
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const res = await fetch("/api/pdf-inspect", { method: "POST", body: formData });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            showToast(`Could not inspect "${file.name}": ${errData.detail || "Invalid PDF"}`, "error");
+            continue;
+          }
+          const info = await res.json();
+          if (info.is_encrypted) {
+            showToast(`"${file.name}" is password-protected. Please unlock it before merging.`, "error");
+            continue;
+          }
+
+          mergeState.files.push({
+            id: "merge-" + Date.now() + "-" + Math.random().toString(36).substr(2, 6),
+            file: file,
+            filename: file.name,
+            size: file.size,
+            pageCount: info.page_count || 1,
+            thumbnail: info.thumbnail || null,
+            rotation: 0,
+            isCurrentDoc: false
+          });
+          addedCount++;
+        } catch (err) {
+          showToast(`Error processing "${file.name}": ${err.message}`, "error");
+        }
+      }
+
+      if (addedCount > 0) {
+        renderMergeViews();
+        showToast(`Added ${addedCount} PDF file${addedCount > 1 ? "s" : ""} to merge queue.`, "success");
+      }
+    } finally {
+      setLoading(false);
+      if (mergeFileInput) mergeFileInput.value = "";
+    }
+  }
+
+  async function addActiveDocumentToMergeQueue() {
+    if (!state.docId) {
+      showToast("No active document is currently loaded in PDF Studio.", "warning");
       return;
     }
 
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append("files", files[i]);
-    }
-
-    setLoading(true, "Merging PDFs...");
+    setLoading(true, "Preparing current document for merge...");
     try {
-      const res = await fetch("/api/merge", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Merge failed");
+      const res = await fetch(`/api/document/${state.docId}/download`);
+      if (!res.ok) throw new Error("Failed to retrieve current document.");
       const blob = await res.blob();
-      downloadBlob(blob, "merged_document.pdf");
-      showToast("Merged PDF downloaded!", "success");
+      const fname = (state.docInfo && state.docInfo.filename) || "document.pdf";
+      const fileObj = new File([blob], fname, { type: "application/pdf" });
+
+      // Retrieve first page image thumbnail
+      let thumbUrl = null;
+      try {
+        const thumbRes = await fetch(`/api/document/${state.docId}/page/1/image?zoom=0.25&format=jpeg`);
+        if (thumbRes.ok) {
+          const thumbBlob = await thumbRes.blob();
+          thumbUrl = await new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(thumbBlob);
+          });
+        }
+      } catch (_) {}
+
+      mergeState.files.push({
+        id: "active-" + Date.now(),
+        file: fileObj,
+        filename: fname + " (Active)",
+        size: blob.size,
+        pageCount: state.totalPages || 1,
+        thumbnail: thumbUrl,
+        rotation: 0,
+        isCurrentDoc: true
+      });
+
+      renderMergeViews();
+      showToast(`Added active document "${fname}" to merge queue!`, "success");
     } catch (err) {
       showToast(err.message, "error");
     } finally {
       setLoading(false);
     }
-  });
+  }
+
+  function renderMergeSidebar() {
+    if (!mergeFileList) return;
+    mergeFileList.innerHTML = "";
+
+    if (mergeState.files.length === 0) {
+      const emptyDiv = document.createElement("div");
+      emptyDiv.className = "empty-queue-placeholder";
+      emptyDiv.id = "mergeEmptyQueueState";
+      emptyDiv.style.textAlign = "center";
+      emptyDiv.style.padding = "20px 10px";
+      emptyDiv.style.color = "var(--text-muted)";
+      emptyDiv.style.fontSize = "12px";
+      emptyDiv.style.border = "1px dashed var(--border-color)";
+      emptyDiv.style.borderRadius = "var(--radius-sm)";
+      emptyDiv.innerHTML = "No PDF files queued yet.<br>Add 2 or more files above to merge.";
+      mergeFileList.appendChild(emptyDiv);
+      updateMergeSummaries();
+      return;
+    }
+
+    mergeState.files.forEach((f, idx) => {
+      const card = document.createElement("div");
+      card.className = "merge-card";
+      card.draggable = true;
+      card.dataset.index = idx;
+
+      // Card drag and drop
+      card.addEventListener("dragstart", (e) => {
+        mergeState.draggedIndex = idx;
+        card.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", idx);
+      });
+      card.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        card.classList.add("drag-over");
+      });
+      card.addEventListener("dragleave", () => {
+        card.classList.remove("drag-over");
+      });
+      card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drag-over");
+        const fromIdx = mergeState.draggedIndex;
+        if (fromIdx !== null && fromIdx !== idx) {
+          moveMergeItem(fromIdx, idx);
+        }
+      });
+      card.addEventListener("dragend", () => {
+        card.classList.remove("dragging");
+        document.querySelectorAll(".merge-card").forEach(c => c.classList.remove("drag-over"));
+        mergeState.draggedIndex = null;
+      });
+
+      // Drag Handle
+      const dragHandle = document.createElement("div");
+      dragHandle.className = "merge-card-drag-handle";
+      dragHandle.title = "Drag to reorder";
+      dragHandle.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg>`;
+
+      // Position Index
+      const indexBadge = document.createElement("div");
+      indexBadge.className = "merge-card-index";
+      indexBadge.textContent = `#${idx + 1}`;
+
+      // Thumbnail
+      const thumbWrap = document.createElement("div");
+      thumbWrap.className = "merge-card-thumb";
+      if (f.thumbnail) {
+        const img = document.createElement("img");
+        img.src = f.thumbnail;
+        img.alt = f.filename;
+        if (f.rotation) img.style.transform = `rotate(${f.rotation}deg)`;
+        thumbWrap.appendChild(img);
+      } else {
+        thumbWrap.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>`;
+      }
+      const pageBadge = document.createElement("span");
+      pageBadge.className = "page-badge";
+      pageBadge.textContent = `${f.pageCount}p`;
+      thumbWrap.appendChild(pageBadge);
+
+      // Info
+      const infoWrap = document.createElement("div");
+      infoWrap.className = "merge-card-info";
+      const nameEl = document.createElement("span");
+      nameEl.className = "name";
+      nameEl.textContent = f.filename;
+      nameEl.title = f.filename;
+      const metaEl = document.createElement("div");
+      metaEl.className = "meta";
+      metaEl.innerHTML = `<span>${formatMergeBytes(f.size)}</span>`;
+      if (f.rotation) {
+        metaEl.innerHTML += `<span class="rot-pill">${f.rotation}°</span>`;
+      }
+      infoWrap.appendChild(nameEl);
+      infoWrap.appendChild(metaEl);
+
+      // Actions
+      const actionsWrap = document.createElement("div");
+      actionsWrap.className = "merge-card-actions";
+
+      // Rotate
+      const btnRot = document.createElement("button");
+      btnRot.type = "button";
+      btnRot.title = "Rotate 90° clockwise";
+      btnRot.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>`;
+      btnRot.addEventListener("click", (e) => {
+        e.stopPropagation();
+        f.rotation = (f.rotation + 90) % 360;
+        renderMergeViews();
+      });
+
+      // Move Up
+      const btnUp = document.createElement("button");
+      btnUp.type = "button";
+      btnUp.title = "Move Up";
+      btnUp.disabled = idx === 0;
+      btnUp.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>`;
+      btnUp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (idx > 0) moveMergeItem(idx, idx - 1);
+      });
+
+      // Move Down
+      const btnDown = document.createElement("button");
+      btnDown.type = "button";
+      btnDown.title = "Move Down";
+      btnDown.disabled = idx === mergeState.files.length - 1;
+      btnDown.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>`;
+      btnDown.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (idx < mergeState.files.length - 1) moveMergeItem(idx, idx + 1);
+      });
+
+      // Remove
+      const btnRemove = document.createElement("button");
+      btnRemove.type = "button";
+      btnRemove.className = "btn-remove";
+      btnRemove.title = "Remove from queue";
+      btnRemove.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+      btnRemove.addEventListener("click", (e) => {
+        e.stopPropagation();
+        mergeState.files.splice(idx, 1);
+        renderMergeViews();
+      });
+
+      actionsWrap.appendChild(btnRot);
+      actionsWrap.appendChild(btnUp);
+      actionsWrap.appendChild(btnDown);
+      actionsWrap.appendChild(btnRemove);
+
+      card.appendChild(dragHandle);
+      card.appendChild(indexBadge);
+      card.appendChild(thumbWrap);
+      card.appendChild(infoWrap);
+      card.appendChild(actionsWrap);
+      mergeFileList.appendChild(card);
+    });
+
+    updateMergeSummaries();
+  }
+
+  function renderMergeModal() {
+    const grid = document.getElementById("mergeModalCardsGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+
+    mergeState.files.forEach((f, idx) => {
+      const card = document.createElement("div");
+      card.className = "merge-grid-card";
+      card.draggable = true;
+      card.dataset.index = idx;
+
+      // Drag and drop in grid
+      card.addEventListener("dragstart", (e) => {
+        mergeState.modalDraggedIndex = idx;
+        card.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", idx);
+      });
+      card.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        card.classList.add("drag-over");
+      });
+      card.addEventListener("dragleave", () => {
+        card.classList.remove("drag-over");
+      });
+      card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drag-over");
+        const fromIdx = mergeState.modalDraggedIndex;
+        if (fromIdx !== null && fromIdx !== idx) {
+          moveMergeItem(fromIdx, idx);
+        }
+      });
+      card.addEventListener("dragend", () => {
+        card.classList.remove("dragging");
+        document.querySelectorAll(".merge-grid-card").forEach(c => c.classList.remove("drag-over"));
+        mergeState.modalDraggedIndex = null;
+      });
+
+      // Card Header
+      const header = document.createElement("div");
+      header.className = "grid-card-header";
+      header.innerHTML = `
+        <span class="grid-card-index">#${idx + 1}</span>
+        <button type="button" class="btn-remove" title="Remove" style="background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      `;
+      header.querySelector(".btn-remove").addEventListener("click", (e) => {
+        e.stopPropagation();
+        mergeState.files.splice(idx, 1);
+        renderMergeViews();
+      });
+
+      // Preview box
+      const preview = document.createElement("div");
+      preview.className = "grid-card-preview";
+      preview.title = "Click to inspect page preview";
+      preview.addEventListener("click", () => openQuickFilePreview(f));
+
+      if (f.thumbnail) {
+        const img = document.createElement("img");
+        img.src = f.thumbnail;
+        img.alt = f.filename;
+        if (f.rotation) img.style.transform = `rotate(${f.rotation}deg)`;
+        preview.appendChild(img);
+      } else {
+        preview.innerHTML = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>`;
+      }
+
+      const pageTag = document.createElement("span");
+      pageTag.className = "page-count-tag";
+      pageTag.textContent = `${f.pageCount} page${f.pageCount > 1 ? "s" : ""}`;
+      preview.appendChild(pageTag);
+
+      const zoomHint = document.createElement("div");
+      zoomHint.className = "preview-zoom-hint";
+      zoomHint.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>`;
+      preview.appendChild(zoomHint);
+
+      // Card info
+      const info = document.createElement("div");
+      info.className = "grid-card-info";
+      info.innerHTML = `
+        <span class="name" title="${f.filename}">${f.filename}</span>
+        <div class="meta">
+          <span>${formatMergeBytes(f.size)}</span>
+          ${f.rotation ? `<span style="font-weight: 600; color: var(--primary);">${f.rotation}°</span>` : ""}
+        </div>
+      `;
+
+      // Actions bottom bar
+      const actions = document.createElement("div");
+      actions.className = "grid-card-actions";
+
+      const btnRot = document.createElement("button");
+      btnRot.type = "button";
+      btnRot.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg><span>Rotate</span>`;
+      btnRot.addEventListener("click", (e) => {
+        e.stopPropagation();
+        f.rotation = (f.rotation + 90) % 360;
+        renderMergeViews();
+      });
+
+      const btnLeft = document.createElement("button");
+      btnLeft.type = "button";
+      btnLeft.title = "Move Left";
+      btnLeft.disabled = idx === 0;
+      btnLeft.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>`;
+      btnLeft.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (idx > 0) moveMergeItem(idx, idx - 1);
+      });
+
+      const btnRight = document.createElement("button");
+      btnRight.type = "button";
+      btnRight.title = "Move Right";
+      btnRight.disabled = idx === mergeState.files.length - 1;
+      btnRight.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+      btnRight.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (idx < mergeState.files.length - 1) moveMergeItem(idx, idx + 1);
+      });
+
+      actions.appendChild(btnRot);
+      actions.appendChild(btnLeft);
+      actions.appendChild(btnRight);
+
+      card.appendChild(header);
+      card.appendChild(preview);
+      card.appendChild(info);
+      card.appendChild(actions);
+      grid.appendChild(card);
+    });
+
+    // Add card at end
+    const addCard = document.createElement("div");
+    addCard.className = "merge-add-card";
+    addCard.innerHTML = `
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <div style="font-size: 13px; font-weight: 600;">Add More PDFs</div>
+      <div style="font-size: 11px;">Drop files here or click to browse</div>
+    `;
+    addCard.addEventListener("click", () => {
+      if (mergeFileInput) mergeFileInput.click();
+    });
+    addCard.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      addCard.style.borderColor = "var(--primary)";
+    });
+    addCard.addEventListener("dragleave", () => {
+      addCard.style.borderColor = "";
+    });
+    addCard.addEventListener("drop", (e) => {
+      e.preventDefault();
+      addCard.style.borderColor = "";
+      if (e.dataTransfer && e.dataTransfer.files) {
+        inspectAndQueuePdfFiles(e.dataTransfer.files);
+      }
+    });
+
+    grid.appendChild(addCard);
+  }
+
+  function renderMergeViews() {
+    renderMergeSidebar();
+    renderMergeModal();
+  }
+
+  function moveMergeItem(fromIdx, toIdx) {
+    if (fromIdx < 0 || fromIdx >= mergeState.files.length) return;
+    if (toIdx < 0 || toIdx >= mergeState.files.length) return;
+    const item = mergeState.files.splice(fromIdx, 1)[0];
+    mergeState.files.splice(toIdx, 0, item);
+    renderMergeViews();
+  }
+
+  function openQuickFilePreview(fileItem) {
+    if (!fileItem || !fileItem.thumbnail) return;
+    const titleEl = document.getElementById("mergeQuickPreviewTitle");
+    const imgEl = document.getElementById("mergeQuickPreviewImg");
+    if (titleEl) titleEl.textContent = `Preview: ${fileItem.filename}`;
+    if (imgEl) {
+      imgEl.src = fileItem.thumbnail;
+      imgEl.style.transform = fileItem.rotation ? `rotate(${fileItem.rotation}deg)` : "none";
+    }
+    openModal("mergeQuickPreviewModal");
+  }
+
+  async function executeMerge(openInStudio = false) {
+    if (mergeState.files.length < 2) {
+      showToast("Please add at least 2 PDF files to merge.", "error");
+      return;
+    }
+
+    const outInput = document.getElementById(openInStudio ? "mergeModalOutputFilename" : "mergeOutputFilename")
+      || document.getElementById("mergeOutputFilename");
+    let outName = (outInput && outInput.value.trim()) || "merged_document.pdf";
+    if (!outName.toLowerCase().endsWith(".pdf")) outName += ".pdf";
+
+    const formData = new FormData();
+    for (const f of mergeState.files) {
+      formData.append("files", f.file);
+    }
+    formData.append("rotations", mergeState.files.map(f => f.rotation || 0).join(","));
+    formData.append("output_filename", outName);
+
+    setLoading(true, `Merging ${mergeState.files.length} PDF documents...`);
+    try {
+      const res = await fetch("/api/merge", { method: "POST", body: formData });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || "Merge failed.");
+      }
+      const blob = await res.blob();
+
+      if (openInStudio) {
+        closeModal("mergeStudioModal");
+        const mergedFile = new File([blob], outName, { type: "application/pdf" });
+        await handlePdfUpload(mergedFile);
+        showToast(`Merged ${mergeState.files.length} files and opened in PDF Studio!`, "success");
+      } else {
+        downloadBlob(blob, outName);
+        showToast(`Merged ${mergeState.files.length} files successfully!`, "success");
+      }
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  window.openMergeModal = function() {
+    renderMergeViews();
+    openModal("mergeStudioModal");
+  };
+
+  // Attach Merge Event Listeners
+  if (mergeFileInput) {
+    mergeFileInput.addEventListener("change", (e) => {
+      inspectAndQueuePdfFiles(e.target.files);
+    });
+  }
+
+  const btnAddMergeFiles = document.getElementById("btnAddMergeFiles");
+  if (btnAddMergeFiles) {
+    btnAddMergeFiles.addEventListener("click", () => mergeFileInput?.click());
+  }
+
+  const btnAddActiveDocToMerge = document.getElementById("btnAddActiveDocToMerge");
+  if (btnAddActiveDocToMerge) {
+    btnAddActiveDocToMerge.addEventListener("click", () => addActiveDocumentToMergeQueue());
+  }
+
+  const btnClearMergeQueue = document.getElementById("btnClearMergeQueue");
+  if (btnClearMergeQueue) {
+    btnClearMergeQueue.addEventListener("click", () => {
+      mergeState.files = [];
+      renderMergeViews();
+      showToast("Merge queue cleared.", "info");
+    });
+  }
+
+  if (btnExecuteMerge) {
+    btnExecuteMerge.addEventListener("click", () => executeMerge(false));
+  }
+
+  const btnMergeAndOpenStudio = document.getElementById("btnMergeAndOpenStudio");
+  if (btnMergeAndOpenStudio) {
+    btnMergeAndOpenStudio.addEventListener("click", () => executeMerge(true));
+  }
+
+  const btnOpenMergeModal = document.getElementById("btnOpenMergeModal");
+  if (btnOpenMergeModal) {
+    btnOpenMergeModal.addEventListener("click", () => window.openMergeModal());
+  }
+
+  const btnModalAddMergeFiles = document.getElementById("btnModalAddMergeFiles");
+  if (btnModalAddMergeFiles) {
+    btnModalAddMergeFiles.addEventListener("click", () => mergeFileInput?.click());
+  }
+
+  const btnModalAddActiveDoc = document.getElementById("btnModalAddActiveDoc");
+  if (btnModalAddActiveDoc) {
+    btnModalAddActiveDoc.addEventListener("click", () => addActiveDocumentToMergeQueue());
+  }
+
+  const btnModalClearMergeQueue = document.getElementById("btnModalClearMergeQueue");
+  if (btnModalClearMergeQueue) {
+    btnModalClearMergeQueue.addEventListener("click", () => {
+      mergeState.files = [];
+      renderMergeViews();
+      showToast("Merge queue cleared.", "info");
+    });
+  }
+
+  const btnModalExecuteMerge = document.getElementById("btnModalExecuteMerge");
+  if (btnModalExecuteMerge) {
+    btnModalExecuteMerge.addEventListener("click", () => executeMerge(false));
+  }
+
+  const btnModalMergeAndOpen = document.getElementById("btnModalMergeAndOpen");
+  if (btnModalMergeAndOpen) {
+    btnModalMergeAndOpen.addEventListener("click", () => executeMerge(true));
+  }
+
+  const mergeDropZone = document.getElementById("mergeDropZone");
+  if (mergeDropZone) {
+    mergeDropZone.addEventListener("click", () => mergeFileInput?.click());
+    mergeDropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      mergeDropZone.classList.add("drag-active");
+    });
+    mergeDropZone.addEventListener("dragleave", () => {
+      mergeDropZone.classList.remove("drag-active");
+    });
+    mergeDropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      mergeDropZone.classList.remove("drag-active");
+      if (e.dataTransfer && e.dataTransfer.files) {
+        inspectAndQueuePdfFiles(e.dataTransfer.files);
+      }
+    });
+  }
 
   // 12. Password Protection
   btnApplyPassword.addEventListener("click", async () => {
@@ -5839,6 +6451,7 @@ const COMMANDS = [
   { name: "Insert Blank Page", category: "Pages", action: () => document.querySelector('[data-tab="tab-organize"]').click() },
   { name: "Split & Extract Pages", category: "Pages", action: () => document.querySelector('[data-tab="tab-split"]').click() },
   { name: "Merge Multiple PDFs", category: "Pages", action: () => document.querySelector('[data-tab="tab-merge"]').click() },
+  { name: "Visual Merge Studio (Organizer)", category: "Pages", action: () => window.openMergeModal() },
   { name: "Redact Sensitive Text", category: "Security", action: () => document.querySelector('[data-tab="tab-redact"]').click() },
   { name: "Apply Watermark", category: "Security", action: () => document.querySelector('[data-tab="tab-watermark"]').click() },
   { name: "Set AES-256 Password", category: "Security", action: () => document.querySelector('[data-tab="tab-protect"]').click() },

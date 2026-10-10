@@ -63,7 +63,7 @@
 | 16 | Add Watermark | Free | PASS | Configurable opacity, rotation, color, page selection |
 | 17 | Add Page Numbers | Free | PASS | 6 positions, custom format, font control |
 | **DOCUMENT ORGANIZATION** | | | | |
-| 18 | Merge PDFs | Free | PASS | Multi-file merge endpoint |
+| 18 | Merge PDFs | Free | PASS | Visual Organizer studio, drag-and-drop file reordering, first-page thumbnails, rotation controls, incremental upload, and merge directly to studio |
 | 19 | Split PDF | Free | PASS | Page range extraction + burst to ZIP |
 | 20 | Organize Pages (reorder/rotate/delete) | Free | PASS | Full thumbnail organizer with rotation |
 | 21 | Delete Pages | Free | PASS | Via organize pages endpoint |
@@ -143,10 +143,9 @@
 **Gap:** SmallPDF shows a visual comparison with animated size reduction.
 **Upgrade:** Add animated compression results card with visual size comparison bar.
 
-### B4. Merge PDFs — UI Is Basic
-**Current State:** API endpoint works, but UI only accepts multi-file upload.
-**Gap:** SmallPDF allows drag-and-drop reordering of files before merge, preview of each document.
-**Upgrade:** Build a file list reorder UI with thumbnails before merge submission.
+### B4. Merge PDFs — Visual Organizer & Drag-and-Drop Reorder UI [COMPLETE]
+**State:** PASS (October 2026)
+**Features:** Interactive drag-and-drop file list and grid reorder UI, PyMuPDF-generated first-page thumbnails, accessible Move Up/Down/Left/Right controls, 90° rotation per file, incremental "Add More Files" and "+ Add Active PDF", quick zoom preview modal, live page and size summaries, custom output filename, and dual completion paths ("Merge & Download" and "Merge & Open in Studio").
 
 ### B5. Split PDF — No Visual Page Picker
 **Current State:** User types page ranges as text ("1-3, 5").

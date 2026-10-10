@@ -898,9 +898,29 @@ async def burst_pdf(doc_id: str):
         raise HTTPException(status_code=500, detail=f"Error bursting PDF: {str(e)}")
 
 
+@app.post("/api/pdf-inspect")
+async def inspect_pdf_file(file: UploadFile = File(...)):
+    """Inspect an uploaded PDF file and return its page count, dimensions, and thumbnail preview."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail=f"File '{file.filename}' is not a PDF.")
+    content = await file.read()
+    validate_pdf_binary(content)
+    try:
+        info = PDFEngine.inspect_pdf(content)
+        info["filename"] = file.filename
+        info["size"] = len(content)
+        return info
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to inspect PDF: {str(e)}")
+
+
 @app.post("/api/merge")
-async def merge_pdfs(files: List[UploadFile] = File(...)):
-    """Merge multiple uploaded PDF files."""
+async def merge_pdfs(
+    files: List[UploadFile] = File(...),
+    rotations: Optional[str] = Form(None),
+    output_filename: Optional[str] = Form("merged_document.pdf")
+):
+    """Merge multiple uploaded PDF files with optional per-document rotation."""
     if len(files) < 2:
         raise HTTPException(status_code=400, detail="Please upload at least 2 PDF files to merge.")
     
@@ -912,12 +932,20 @@ async def merge_pdfs(files: List[UploadFile] = File(...)):
         validate_pdf_binary(content)
         pdf_bytes_list.append(content)
 
+    rotation_list = None
+    if rotations:
+        try:
+            rotation_list = [int(r.strip()) for r in rotations.split(",") if r.strip()]
+        except Exception:
+            rotation_list = None
+
     try:
-        merged_pdf = PDFEngine.merge_pdfs(pdf_bytes_list)
+        merged_pdf = PDFEngine.merge_pdfs(pdf_bytes_list, rotations=rotation_list)
+        safe_filename = output_filename if output_filename and output_filename.lower().endswith(".pdf") else "merged_document.pdf"
         return StreamingResponse(
             io.BytesIO(merged_pdf),
             media_type="application/pdf",
-            headers={"Content-Disposition": 'attachment; filename="merged_document.pdf"'}
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error merging PDFs: {str(e)}")

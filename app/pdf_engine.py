@@ -10,6 +10,7 @@ import re
 import shutil
 import datetime
 import zipfile
+import base64
 from typing import List, Dict, Any, Optional, Tuple, Union
 import pymupdf as fitz
 from PIL import Image
@@ -1289,15 +1290,72 @@ class PDFEngine:
         )
 
     @staticmethod
-    def merge_pdfs(pdf_bytes_list: List[bytes]) -> bytes:
-        """Merge multiple PDF documents into a single document."""
+    def inspect_pdf(pdf_bytes: bytes, max_thumb_size: int = 240) -> Dict[str, Any]:
+        """Inspect a PDF file and extract page count, dimensions, encryption status, and first-page thumbnail."""
+        if not pdf_bytes:
+            raise ValueError("PDF content is empty.")
+        
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        except Exception as e:
+            raise ValueError(f"Invalid or corrupted PDF file: {str(e)}")
+
+        try:
+            if doc.is_encrypted:
+                return {
+                    "is_encrypted": True,
+                    "page_count": 0,
+                    "width": 0.0,
+                    "height": 0.0,
+                    "thumbnail": None
+                }
+
+            page_count = doc.page_count
+            if page_count == 0:
+                return {
+                    "is_encrypted": False,
+                    "page_count": 0,
+                    "width": 0.0,
+                    "height": 0.0,
+                    "thumbnail": None
+                }
+
+            first_page = doc[0]
+            rect = first_page.rect
+            width = float(rect.width)
+            height = float(rect.height)
+
+            # Generate crisp, lightweight JPEG thumbnail
+            scale = min(max_thumb_size / max(width, 1.0), max_thumb_size / max(height, 1.0), 0.6)
+            matrix = fitz.Matrix(scale, scale)
+            pix = first_page.get_pixmap(matrix=matrix, alpha=False)
+            thumb_bytes = pix.tobytes("jpeg")
+            thumb_b64 = "data:image/jpeg;base64," + base64.b64encode(thumb_bytes).decode("utf-8")
+
+            return {
+                "is_encrypted": False,
+                "page_count": page_count,
+                "width": round(width, 1),
+                "height": round(height, 1),
+                "thumbnail": thumb_b64
+            }
+        finally:
+            doc.close()
+
+    @staticmethod
+    def merge_pdfs(pdf_bytes_list: List[bytes], rotations: Optional[List[int]] = None) -> bytes:
+        """Merge multiple PDF documents into a single document with optional per-document rotations."""
         if not pdf_bytes_list:
             raise ValueError("No PDF documents provided to merge.")
 
         output_doc = fitz.open()
         try:
-            for pdf_bytes in pdf_bytes_list:
+            for idx, pdf_bytes in enumerate(pdf_bytes_list):
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                if rotations and idx < len(rotations) and rotations[idx]:
+                    rot = int(rotations[idx]) % 360
+                    for page in doc:
+                        page.set_rotation((page.rotation + rot) % 360)
                 output_doc.insert_pdf(doc)
                 doc.close()
 
