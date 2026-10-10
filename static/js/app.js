@@ -371,7 +371,7 @@ function setupUpload() {
   });
 }
 
-async function handlePdfUpload(file) {
+async function handlePdfUpload(file, password = null) {
   if (!file || !file.name.toLowerCase().endsWith(".pdf")) {
     showToast("Please select a valid PDF file.", "error");
     return;
@@ -387,6 +387,9 @@ async function handlePdfUpload(file) {
   setLoading(true, "Parsing PDF...");
   const formData = new FormData();
   formData.append("file", file);
+  if (password) {
+    formData.append("password", password);
+  }
 
   try {
     const res = await fetch("/api/upload", { method: "POST", body: formData });
@@ -4555,17 +4558,20 @@ function setupToolActions() {
   const btnOpenStandaloneUnlock = document.getElementById("btnOpenStandaloneUnlockModal");
   if (btnOpenStandaloneUnlock) {
     btnOpenStandaloneUnlock.addEventListener("click", () => {
-      const modal = document.getElementById("standaloneUnlockModal");
       const err = document.getElementById("standaloneUnlockError");
       if (err) err.style.display = "none";
       const pwIn = document.getElementById("standaloneUnlockPassword");
       if (pwIn) pwIn.value = "";
       const fileIn = document.getElementById("standaloneUnlockFileInput");
       if (fileIn) fileIn.value = "";
-      if (modal) modal.classList.add("active");
+      openModal("standaloneUnlockModal");
+      setTimeout(() => {
+        if (fileIn) fileIn.focus();
+      }, 120);
     });
   }
 
+  // 1. Standalone: Unlock & Download
   const btnExecuteStandaloneUnlock = document.getElementById("btnExecuteStandaloneUnlock");
   if (btnExecuteStandaloneUnlock) {
     btnExecuteStandaloneUnlock.addEventListener("click", async () => {
@@ -4622,10 +4628,52 @@ function setupToolActions() {
     });
   }
 
+  // 2. Standalone: Unlock & Open in Studio
+  const btnStandaloneUnlockAndOpen = document.getElementById("btnStandaloneUnlockAndOpen");
+  if (btnStandaloneUnlockAndOpen) {
+    btnStandaloneUnlockAndOpen.addEventListener("click", async () => {
+      const fileInput = document.getElementById("standaloneUnlockFileInput");
+      const pwInput = document.getElementById("standaloneUnlockPassword");
+      const errEl = document.getElementById("standaloneUnlockError");
+
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        if (errEl) {
+          errEl.textContent = "Please select a PDF file.";
+          errEl.style.display = "block";
+        }
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const password = pwInput ? pwInput.value : "";
+      closeModal("standaloneUnlockModal");
+      await handlePdfUpload(file, password);
+    });
+  }
+
+  const standaloneUnlockPasswordInput = document.getElementById("standaloneUnlockPassword");
+  if (standaloneUnlockPasswordInput) {
+    standaloneUnlockPasswordInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const btnOpen = document.getElementById("btnStandaloneUnlockAndOpen");
+        if (btnOpen) btnOpen.click();
+        else {
+          const btnExec = document.getElementById("btnExecuteStandaloneUnlock");
+          if (btnExec) btnExec.click();
+        }
+      }
+    });
+  }
+
   // Password Prompt Modal event listeners
   const btnSubmitPasswordPrompt = document.getElementById("btnSubmitPasswordPrompt");
   if (btnSubmitPasswordPrompt) {
     btnSubmitPasswordPrompt.addEventListener("click", submitPasswordPrompt);
+  }
+  const btnPromptUnlockAndDownload = document.getElementById("btnPromptUnlockAndDownload");
+  if (btnPromptUnlockAndDownload) {
+    btnPromptUnlockAndDownload.addEventListener("click", promptUnlockAndDownload);
   }
   const promptModalPasswordInput = document.getElementById("promptModalPassword");
   if (promptModalPasswordInput) {
@@ -6135,12 +6183,18 @@ function downloadBlob(blob, filename) {
 
 function openModal(id) {
   const modal = document.getElementById(id);
-  if (modal) modal.classList.add("open");
+  if (modal) {
+    modal.classList.add("open");
+    modal.classList.add("active");
+  }
 }
 
 function closeModal(id) {
   const modal = document.getElementById(id);
-  if (modal) modal.classList.remove("open");
+  if (modal) {
+    modal.classList.remove("open");
+    modal.classList.remove("active");
+  }
 }
 
 // ==========================================================================
@@ -8300,13 +8354,21 @@ window.openPasswordPromptModal = function(filename) {
   if (pwInput) pwInput.value = "";
   const errEl = document.getElementById("passwordPromptError");
   if (errEl) errEl.style.display = "none";
-  modal.classList.add("active");
+  openModal("passwordPromptModal");
   setTimeout(() => { if (pwInput) pwInput.focus(); }, 120);
 };
 
 window.closePasswordPromptModal = function() {
-  const modal = document.getElementById("passwordPromptModal");
-  if (modal) modal.classList.remove("active");
+  closeModal("passwordPromptModal");
+  if (!state.docInfo || state.docInfo.page_count === 0) {
+    if (state.docId) {
+      fetch(`/api/document/${state.docId}/close`, { method: "POST" }).catch(() => {});
+      state.docId = null;
+    }
+    uploadSection.style.display = "block";
+    workspaceSection.style.display = "none";
+    topNavActions.style.display = "none";
+  }
 };
 
 window.togglePasswordVisibility = function(inputId) {
@@ -8314,6 +8376,60 @@ window.togglePasswordVisibility = function(inputId) {
   if (!el) return;
   el.type = el.type === "password" ? "text" : "password";
 };
+
+async function promptUnlockAndDownload() {
+  const pwInput = document.getElementById("promptModalPassword");
+  const errEl = document.getElementById("passwordPromptError");
+  const password = pwInput ? pwInput.value : "";
+  if (!password) {
+    if (errEl) {
+      errEl.textContent = "Please enter the document password.";
+      errEl.style.display = "block";
+    }
+    return;
+  }
+
+  setLoading(true, "Decrypting and downloading PDF...");
+  try {
+    const res = await fetch(`/api/document/${state.docId}/unlock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.detail || "Incorrect password.");
+    }
+
+    closeModal("passwordPromptModal");
+    const downloadRes = await fetch(`/api/document/${state.docId}/download`);
+    if (!downloadRes.ok) throw new Error("Failed to download decrypted file.");
+    const blob = await downloadRes.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const origBase = (state.filename || "document").replace(/\.[^/.]+$/, "");
+    a.href = url;
+    a.download = `${origBase}_unlocked.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast("PDF unlocked and downloaded successfully!", "success");
+    if (!state.docInfo || state.docInfo.page_count === 0) {
+      uploadSection.style.display = "block";
+      workspaceSection.style.display = "none";
+      topNavActions.style.display = "none";
+    }
+  } catch (err) {
+    if (errEl) {
+      errEl.textContent = err.message || "Incorrect password. Please try again.";
+      errEl.style.display = "block";
+    }
+    if (pwInput) pwInput.select();
+  } finally {
+    setLoading(false);
+  }
+}
 
 async function submitPasswordPrompt() {
   const pwInput = document.getElementById("promptModalPassword");

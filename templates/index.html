@@ -121,7 +121,7 @@
             <span class="format-pill">PDF 1.0–2.0</span>
             <span class="format-pill">Fillable AcroForms</span>
             <span class="format-pill">Scanned &amp; OCR</span>
-            <span class="format-pill">AES Encrypted</span>
+            <span class="format-pill" onclick="event.stopPropagation(); openModal('standaloneUnlockModal');" style="cursor: pointer; background: rgba(16, 185, 129, 0.12); color: #059669; font-weight: 500;" title="Click to unlock any password-protected PDF">🔓 Unlock Protected PDF</span>
           </div>
         </div>
       </div>
@@ -2401,8 +2401,12 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer" style="padding: 12px 20px; background: var(--bg-secondary); display: flex; justify-content: flex-end; gap: 8px;">
+        <div class="modal-footer" style="padding: 12px 20px; background: var(--bg-secondary); display: flex; justify-content: flex-end; gap: 8px;">
         <button type="button" class="btn btn-secondary" onclick="closePasswordPromptModal()">Cancel</button>
+        <button type="button" id="btnPromptUnlockAndDownload" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px;" title="Decrypt and download directly">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Unlock &amp; Download</span>
+        </button>
         <button type="button" id="btnSubmitPasswordPrompt" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
           <span>Unlock &amp; Open</span>
@@ -2413,7 +2417,7 @@
 
   <!-- Modal: Standalone Unlock PDF Tool (Feature 29) -->
   <div id="standaloneUnlockModal" class="modal">
-    <div class="modal-content" style="max-width: 480px;">
+    <div class="modal-content" style="max-width: 500px;">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 8px;">
           <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); color: #10b981; display: flex; align-items: center; justify-content: center;">
@@ -2428,7 +2432,7 @@
       </div>
       <div class="modal-body" style="padding: 16px 20px;">
         <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 14px 0;">
-          Select any password-protected PDF to strip AES-256 encryption, remove printing and editing restrictions, and download a clean unencrypted copy.
+          Select any password-protected PDF to strip AES-256 encryption, remove printing and editing restrictions, and open or download a clean unencrypted copy.
         </p>
         <div class="form-group">
           <label style="font-size: 12px; font-weight: 600;">Select Encrypted PDF:</label>
@@ -2447,14 +2451,18 @@
       </div>
       <div class="modal-footer" style="padding: 12px 20px; background: var(--bg-secondary); display: flex; justify-content: flex-end; gap: 8px;">
         <button type="button" class="btn btn-secondary" onclick="closeModal('standaloneUnlockModal')">Cancel</button>
-        <button type="button" id="btnExecuteStandaloneUnlock" class="btn btn-success" style="display: flex; align-items: center; gap: 6px;">
+        <button type="button" id="btnExecuteStandaloneUnlock" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          <span>Unlock &amp; Download PDF</span>
+          <span>Unlock &amp; Download</span>
+        </button>
+        <button type="button" id="btnStandaloneUnlockAndOpen" class="btn btn-success" style="display: flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+          <span>Unlock &amp; Open in Studio</span>
         </button>
       </div>
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=2.10.1" defer></script>
+  <script src="/static/js/app.js?v=2.10.2" defer></script>
 </body>
 </html>

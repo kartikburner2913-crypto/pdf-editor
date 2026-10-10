@@ -2231,7 +2231,8 @@ textarea.form-overlay-widget {
   justify-content: center;
 }
 
-.modal.open {
+.modal.open,
+.modal.active {
   display: flex;
 }
 
