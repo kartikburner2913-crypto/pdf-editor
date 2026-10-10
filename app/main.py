@@ -1745,6 +1745,17 @@ async def crop_page(doc_id: str, req: CropPageRequest):
         raise HTTPException(status_code=500, detail=f"Error cropping page: {str(e)}")
 
 
+@app.get("/api/document/{doc_id}/page/{page_num}/content-bounds")
+async def get_page_content_bounds(doc_id: str, page_num: int, padding: float = Query(18.0)):
+    """Get detected content bounding box for auto-framing crop boxes."""
+    doc = get_doc(doc_id)
+    try:
+        bounds = PDFEngine.get_content_bounds(doc["current_bytes"], page_num=page_num, padding=padding)
+        return bounds
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error detecting content bounds: {str(e)}")
+
+
 @app.post("/api/document/{doc_id}/trim-margins")
 async def trim_margins(doc_id: str, req: TrimMarginsRequest):
     """Auto-detect content boundaries and trim whitespace margins."""

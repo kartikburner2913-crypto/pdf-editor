@@ -70,7 +70,7 @@
 | 22 | Rotate Pages | Free | PASS | 90/180/270 rotation |
 | 23 | Insert Blank Page | Free | PASS | Custom dimensions (A4/Letter/Custom) |
 | 24 | Duplicate Page | Free | PASS | Clone page in-place |
-| 25 | Crop Pages | Free | WARN | Implemented but lacks SmallPDF visual crop preview UI |
+| 25 | Crop Pages | Free | PASS | Full interactive canvas crop box, 8 handles, dimmed backdrop, rule-of-thirds grid, aspect ratio locks, auto-fit content detection |
 | **COMPRESSION** | | | | |
 | 26 | Compress PDF (basic) | Free | PASS | Multiple presets (extreme/recommended/high/custom) |
 | 27 | Strong Compression | PRO | PASS | Advanced lossy compression with image quality/DPI control |
@@ -129,10 +129,9 @@
 
 ## Category B — Existing Features Needing Upgrades
 
-### B1. Crop Pages — Missing Visual Crop UI
-**Current State:** Backend supports cropping via coordinates.
-**Gap:** SmallPDF provides a visual drag-to-crop rectangle preview. PDF Studio only accepts manual coordinate input.
-**Upgrade:** Add interactive visual crop overlay to the canvas.
+### B1. Crop Pages — Visual Crop Tool (Implemented)
+**Status:** PASS
+**Implemented:** Interactive visual crop overlay on canvas with 8 drag/resize handles, dimmed backdrop shadow, rule-of-thirds composition grid, live coordinate badge (pt & mm), preset aspect ratio constraints (Free, Page, A4, Letter, 1:1, 16:9, 4:3), auto-fit content boundaries detection (`/content-bounds`), micro-toolbar with viewport clamping, and bidirectional sync with sidebar margin inputs.
 
 ### B2. eSign — No Signature Creation Workflow
 **Current State:** Can insert uploaded signature images.
@@ -517,7 +516,7 @@ Add page thumbnail grid with checkboxes. Users click to select pages instead of 
 | Priority | Feature | Effort | Impact |
 |----------|---------|--------|--------|
 | P0 | A8: Unlock PDF | 0.5 day | High — Implemented |
-| P0 | B1: Visual Crop Tool | 1 day | High — major UX gap |
+| P0 | B1: Visual Crop Tool | 1 day | High — Implemented |
 | P0 | B3: Compression Visualization | 0.5 day | Medium — polish |
 | P1 | A10: eSign Workflow | 2 days | High — signature creation UI |
 | P1 | B4: Merge Reorder UI | 1 day | Medium — UX improvement |

@@ -42,12 +42,15 @@ const state = {
   measureScale: 1.0,
   measureUnit: "in",
   isVisualCropping: false,
+  cropCoordsPt: null,
+  cropRatio: "free",
   pageBundleCache: new Map(),
   docVersion: 1
 };
 
 let activeTransformBox = null;
 let activeImageBox = null;
+let activeCropBox = null;
 
 // DOM Elements
 const uploadSection = document.getElementById("uploadSection");
@@ -556,6 +559,10 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
 
     cancelTransformBox();
     syncActiveThumbnail(pageNumber);
+
+    if (state.isVisualCropping && state.cropCoordsPt) {
+      syncCropBoxToScreen();
+    }
 
     state.textBlocks = bundle.text_blocks || [];
     renderBlockHighlights();
@@ -2084,7 +2091,14 @@ function setupCanvasDrawing() {
       document.getElementById("cropMarginTop").value = minY;
       document.getElementById("cropMarginRight").value = Math.max(0, pW - maxX);
       document.getElementById("cropMarginBottom").value = Math.max(0, pH - maxY);
+      state.cropCoordsPt = [minX, minY, maxX, maxY];
+      if (activeBox) {
+        activeBox.remove();
+        activeBox = null;
+      }
+      renderVisualCropBox();
       showToast(`Crop box set: [${minX}, ${minY}, ${maxX}, ${maxY}]`, "info");
+      return;
     }
 
     // Make drawn placement box movable on the canvas before action
@@ -5937,9 +5951,7 @@ function setupKeyboardShortcuts() {
       cancelMeasurement();
       deselectFormField();
       if (state.isVisualCropping) {
-        state.isVisualCropping = false;
-        const btn = document.getElementById("btnStartVisualCrop");
-        if (btn) btn.classList.remove("active");
+        cancelVisualCrop();
       }
       document.querySelectorAll(".modal.open").forEach(m => m.classList.remove("open"));
       if (thumbnailContextMenu) thumbnailContextMenu.style.display = "none";
@@ -7364,12 +7376,436 @@ function renderMeasurementVisuals() {
 }
 
 // --------------------------------------------------------------------------
-// 7 & 8. Page Cropping & Margin Trimming
+// 7 & 8. Page Cropping & Margin Trimming (SmallPDF Visual Parity)
 // --------------------------------------------------------------------------
+
+function cancelVisualCrop() {
+  state.isVisualCropping = false;
+  if (activeCropBox) {
+    activeCropBox.remove();
+    activeCropBox = null;
+  }
+  const btn = document.getElementById("btnStartVisualCrop");
+  if (btn) btn.classList.remove("active");
+  const card = document.getElementById("visualCropActiveCard");
+  if (card) card.style.display = "none";
+}
+
+function updateCropToolbarPosition() {
+  if (!activeCropBox) return;
+  const toolbar = activeCropBox.querySelector(".crop-floating-toolbar");
+  const pill = activeCropBox.querySelector(".crop-top-pill");
+  if (!toolbar) return;
+
+  const viewportEl = document.getElementById("canvasViewport");
+  const viewportRect = viewportEl ? viewportEl.getBoundingClientRect() : {
+    left: 0,
+    right: window.innerWidth,
+    top: 0,
+    bottom: window.innerHeight,
+    width: window.innerWidth,
+    height: window.innerHeight
+  };
+  const boxRect = activeCropBox.getBoundingClientRect();
+  const tbRect = toolbar.getBoundingClientRect();
+  const tbWidth = tbRect.width > 0 ? tbRect.width : (toolbar.offsetWidth || 340);
+  const tbHeight = tbRect.height > 0 ? tbRect.height : (toolbar.offsetHeight || 36);
+
+  // Vertical placement: Above vs Below
+  const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 10;
+  const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 10;
+
+  if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 35)) {
+    toolbar.classList.add("toolbar-above");
+  } else {
+    toolbar.classList.remove("toolbar-above");
+  }
+
+  // Horizontal clamping within visible viewport
+  const padding = 10;
+  const availWidth = Math.max(260, viewportRect.width - padding * 2);
+  const effectiveTbWidth = Math.min(tbWidth, availWidth);
+
+  const screenMinX = viewportRect.left + padding;
+  const screenMaxX = viewportRect.right - padding - effectiveTbWidth;
+
+  const idealCenter = boxRect.left + (boxRect.width / 2);
+  const idealScreenLeft = idealCenter - (effectiveTbWidth / 2);
+
+  let clampedScreenLeft;
+  if (screenMaxX <= screenMinX) {
+    clampedScreenLeft = screenMinX;
+  } else {
+    clampedScreenLeft = Math.max(screenMinX, Math.min(idealScreenLeft, screenMaxX));
+  }
+
+  const relLeft = clampedScreenLeft - boxRect.left;
+  toolbar.style.left = `${Math.round(relLeft)}px`;
+  toolbar.style.transform = "none";
+  toolbar.style.maxWidth = `${Math.floor(availWidth)}px`;
+
+  // Pill clamping
+  if (pill) {
+    const pillRect = pill.getBoundingClientRect();
+    const pillWidth = pillRect.width > 0 ? pillRect.width : (pill.offsetWidth || 180);
+    const pillMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - pillWidth;
+    const pillMinX = Math.max(viewportRect.left + padding, padding);
+    const idealPillLeft = boxRect.left;
+    const clampedPillLeft = Math.max(pillMinX, Math.min(idealPillLeft, pillMaxX));
+    pill.style.left = `${Math.round(clampedPillLeft - boxRect.left)}px`;
+  }
+}
+
+function updateCropBadgeAndInputs() {
+  if (!state.cropCoordsPt) return;
+  const [x0, y0, x1, y1] = state.cropCoordsPt;
+  const pW = state.pageWidthPt || 595;
+  const pH = state.pageHeightPt || 842;
+
+  const leftPt = Math.round(x0);
+  const topPt = Math.round(y0);
+  const rightPt = Math.round(Math.max(0, pW - x1));
+  const bottomPt = Math.round(Math.max(0, pH - y1));
+
+  const wPt = Math.round(x1 - x0);
+  const hPt = Math.round(y1 - y0);
+  const wMm = Math.round(wPt * 0.352778);
+  const hMm = Math.round(hPt * 0.352778);
+
+  if (activeCropBox) {
+    const badge = activeCropBox.querySelector(".crop-badge");
+    if (badge) {
+      badge.textContent = `${wPt} × ${hPt} pt (${wMm} × ${hMm} mm)`;
+    }
+  }
+
+  const inLeft = document.getElementById("cropMarginLeft");
+  const inTop = document.getElementById("cropMarginTop");
+  const inRight = document.getElementById("cropMarginRight");
+  const inBottom = document.getElementById("cropMarginBottom");
+  if (inLeft) inLeft.value = leftPt;
+  if (inTop) inTop.value = topPt;
+  if (inRight) inRight.value = rightPt;
+  if (inBottom) inBottom.value = bottomPt;
+}
+
+function syncCropBoxToScreen() {
+  if (!activeCropBox || !state.cropCoordsPt) return;
+  const rect = pageToScreenRect(state.cropCoordsPt);
+  activeCropBox.style.left = `${Math.round(rect.left)}px`;
+  activeCropBox.style.top = `${Math.round(rect.top)}px`;
+  activeCropBox.style.width = `${Math.round(rect.width)}px`;
+  activeCropBox.style.height = `${Math.round(rect.height)}px`;
+  updateCropBadgeAndInputs();
+  updateCropToolbarPosition();
+}
+
+function applyAspectRatioToCurrentBox(ratioVal) {
+  state.cropRatio = ratioVal;
+  const floatingSelect = activeCropBox ? activeCropBox.querySelector("#cropFloatingRatioSelect") : null;
+  const sidebarSelect = document.getElementById("sidebarCropRatioSelect");
+  if (floatingSelect && floatingSelect.value !== ratioVal) floatingSelect.value = ratioVal;
+  if (sidebarSelect && sidebarSelect.value !== ratioVal) sidebarSelect.value = ratioVal;
+
+  if (ratioVal === "free") {
+    if (activeCropBox) {
+      activeCropBox._isRatioLocked = false;
+      activeCropBox._getAspectRatio = null;
+    }
+    return;
+  }
+
+  let targetRatio = 1.0;
+  if (ratioVal === "page") targetRatio = (state.pageWidthPt || 595) / (state.pageHeightPt || 842);
+  else if (ratioVal === "a4") targetRatio = 210 / 297;
+  else if (ratioVal === "letter") targetRatio = 8.5 / 11;
+  else if (ratioVal === "1:1") targetRatio = 1.0;
+  else if (ratioVal === "16:9") targetRatio = 16 / 9;
+  else if (ratioVal === "4:3") targetRatio = 4 / 3;
+
+  if (!activeCropBox || !state.cropCoordsPt) return;
+
+  activeCropBox._isRatioLocked = true;
+  activeCropBox._getAspectRatio = () => targetRatio;
+
+  // Fit current box to selected ratio
+  let [x0, y0, x1, y1] = state.cropCoordsPt;
+  let curW = Math.max(20, x1 - x0);
+  let curH = Math.max(20, y1 - y0);
+  let centerX = (x0 + x1) / 2;
+  let centerY = (y0 + y1) / 2;
+
+  let newW = curW;
+  let newH = curW / targetRatio;
+  const maxW = state.pageWidthPt || 595;
+  const maxH = state.pageHeightPt || 842;
+
+  if (newH > maxH) {
+    newH = maxH;
+    newW = newH * targetRatio;
+  }
+  if (newW > maxW) {
+    newW = maxW;
+    newH = newW / targetRatio;
+  }
+
+  let newX0 = Math.max(0, centerX - newW / 2);
+  let newY0 = Math.max(0, centerY - newH / 2);
+  let newX1 = Math.min(maxW, newX0 + newW);
+  let newY1 = Math.min(maxH, newY0 + newH);
+  if (newX1 - newX0 < newW) newX0 = Math.max(0, newX1 - newW);
+  if (newY1 - newY0 < newH) newY0 = Math.max(0, newY1 - newH);
+
+  state.cropCoordsPt = [newX0, newY0, newX1, newY1];
+  syncCropBoxToScreen();
+}
+
+async function autoFitCropContent() {
+  if (!state.docId) return;
+  setLoading(true, "Detecting page content boundaries...");
+  try {
+    const res = await fetch(`/api/document/${state.docId}/page/${state.currentPage}/content-bounds?padding=18`);
+    if (!res.ok) throw new Error("Failed to detect content bounds");
+    const data = await res.json();
+    if (data.bbox) {
+      state.cropCoordsPt = [data.bbox[0], data.bbox[1], data.bbox[2], data.bbox[3]];
+      syncCropBoxToScreen();
+      showToast(data.has_content ? "Auto-fitted to page content boundaries." : "No text/graphics detected; framed with default margin.", "info");
+    }
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function applyVisualCrop(applyAll = false) {
+  if (!state.docId || !state.cropCoordsPt) return;
+  const [x0, y0, x1, y1] = state.cropCoordsPt;
+  const rect = [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
+  if ((rect[2] - rect[0]) < 10 || (rect[3] - rect[1]) < 10) {
+    return showToast("Crop box must be at least 10x10 pt.", "warning");
+  }
+
+  setLoading(true, applyAll ? "Cropping all pages..." : "Cropping page...");
+  try {
+    const res = await fetch(`/api/document/${state.docId}/page/crop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        page: state.currentPage,
+        crop_box: rect,
+        apply_all_pages: applyAll
+      })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || "Failed to crop page");
+    }
+    const data = await res.json();
+    cancelVisualCrop();
+    updateUndoRedoButtons(true, false);
+    showToast(data.message || (applyAll ? "All pages cropped successfully!" : `Page ${state.currentPage} cropped!`), "success");
+    await loadPage(state.currentPage);
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+function renderVisualCropBox() {
+  if (!interactiveOverlay) return;
+  if (activeCropBox) {
+    activeCropBox.remove();
+    activeCropBox = null;
+  }
+
+  const pW = state.pageWidthPt || 595;
+  const pH = state.pageHeightPt || 842;
+
+  if (!state.cropCoordsPt) {
+    const leftVal = parseFloat(document.getElementById("cropMarginLeft")?.value || 0);
+    const topVal = parseFloat(document.getElementById("cropMarginTop")?.value || 0);
+    const rightVal = parseFloat(document.getElementById("cropMarginRight")?.value || 0);
+    const bottomVal = parseFloat(document.getElementById("cropMarginBottom")?.value || 0);
+    if ((leftVal > 0 || topVal > 0 || rightVal > 0 || bottomVal > 0) &&
+        (pW - rightVal > leftVal + 20) && (pH - bottomVal > topVal + 20)) {
+      state.cropCoordsPt = [leftVal, topVal, pW - rightVal, pH - bottomVal];
+    } else {
+      state.cropCoordsPt = [
+        Math.round(pW * 0.05),
+        Math.round(pH * 0.05),
+        Math.round(pW * 0.95),
+        Math.round(pH * 0.95)
+      ];
+    }
+  }
+
+  const screenRect = pageToScreenRect(state.cropCoordsPt);
+  const box = document.createElement("div");
+  box.id = "activeVisualCropBox";
+  box.className = "visual-crop-box";
+  box.style.left = `${Math.round(screenRect.left)}px`;
+  box.style.top = `${Math.round(screenRect.top)}px`;
+  box.style.width = `${Math.round(screenRect.width)}px`;
+  box.style.height = `${Math.round(screenRect.height)}px`;
+
+  // 1. Rule-of-thirds grid
+  const grid = document.createElement("div");
+  grid.className = "crop-grid-overlay";
+  for (let i = 0; i < 9; i++) {
+    grid.appendChild(document.createElement("div"));
+  }
+  box.appendChild(grid);
+
+  // 2. Drag Pill with Page info and live coordinates badge
+  const pill = document.createElement("div");
+  pill.className = "crop-top-pill";
+  pill.innerHTML = `
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 2v14a2 2 0 0 0 2 2h14"></path><path d="M18 22V8a2 2 0 0 0-2-2H2"></path></svg>
+    <span>Crop Page ${state.currentPage}</span>
+    <span class="crop-badge"></span>
+    <span class="crop-close-btn" title="Cancel Crop (Esc)">&times;</span>
+  `;
+  box.appendChild(pill);
+  pill.querySelector(".crop-close-btn").addEventListener("click", () => cancelVisualCrop());
+
+  // 3. Floating Micro-Toolbar
+  const allPagesChecked = document.getElementById("cropAllPages")?.checked || false;
+  const toolbar = document.createElement("div");
+  toolbar.className = "crop-floating-toolbar";
+  toolbar.innerHTML = `
+    <select id="cropFloatingRatioSelect" title="Aspect Ratio Preset">
+      <option value="free" ${state.cropRatio === "free" ? "selected" : ""}>Free</option>
+      <option value="page" ${state.cropRatio === "page" ? "selected" : ""}>Page Ratio</option>
+      <option value="a4" ${state.cropRatio === "a4" ? "selected" : ""}>A4</option>
+      <option value="letter" ${state.cropRatio === "letter" ? "selected" : ""}>Letter</option>
+      <option value="1:1" ${state.cropRatio === "1:1" ? "selected" : ""}>1:1</option>
+      <option value="16:9" ${state.cropRatio === "16:9" ? "selected" : ""}>16:9</option>
+      <option value="4:3" ${state.cropRatio === "4:3" ? "selected" : ""}>4:3</option>
+    </select>
+    <button type="button" id="cropBtnAutoFit" class="btn btn-xs btn-outline" title="Auto-fit crop box to detected content boundaries">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <span>Auto-Fit</span>
+    </button>
+    <button type="button" id="cropBtnFullPage" class="btn btn-xs btn-outline" title="Reset crop box to full page">
+      <span>Full Page</span>
+    </button>
+    <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;margin:0 4px;" title="Apply this crop to all document pages">
+      <input type="checkbox" id="cropFloatingAllPages" ${allPagesChecked ? "checked" : ""}> All Pages
+    </label>
+    <button type="button" id="cropBtnApply" class="btn btn-xs btn-primary" title="Apply crop to page">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      <span>Apply</span>
+    </button>
+    <button type="button" id="cropBtnCancel" class="btn btn-xs btn-secondary" title="Cancel Crop">
+      <span>Cancel</span>
+    </button>
+  `;
+  toolbar.addEventListener("mousedown", (e) => e.stopPropagation());
+  box.appendChild(toolbar);
+
+  // Wire toolbar controls
+  toolbar.querySelector("#cropFloatingRatioSelect").addEventListener("change", (e) => {
+    applyAspectRatioToCurrentBox(e.target.value);
+  });
+  toolbar.querySelector("#cropBtnAutoFit").addEventListener("click", () => {
+    autoFitCropContent();
+  });
+  toolbar.querySelector("#cropBtnFullPage").addEventListener("click", () => {
+    state.cropCoordsPt = [0, 0, state.pageWidthPt || 595, state.pageHeightPt || 842];
+    syncCropBoxToScreen();
+  });
+  const floatingAllCheck = toolbar.querySelector("#cropFloatingAllPages");
+  floatingAllCheck.addEventListener("change", (e) => {
+    const mainCheck = document.getElementById("cropAllPages");
+    if (mainCheck) mainCheck.checked = e.target.checked;
+  });
+  toolbar.querySelector("#cropBtnApply").addEventListener("click", () => {
+    applyVisualCrop(floatingAllCheck.checked);
+  });
+  toolbar.querySelector("#cropBtnCancel").addEventListener("click", () => {
+    cancelVisualCrop();
+  });
+
+  // Attach dragging on pill and box
+  function onCropMoved(newLeft, newTop, wPx, hPx) {
+    const { scaleX, scaleY } = getOverlayScale();
+    const ptX0 = Math.max(0, newLeft / scaleX);
+    const ptY0 = Math.max(0, newTop / scaleY);
+    const ptX1 = Math.min(state.pageWidthPt, (newLeft + wPx) / scaleX);
+    const ptY1 = Math.min(state.pageHeightPt, (newTop + hPx) / scaleY);
+    state.cropCoordsPt = [ptX0, ptY0, ptX1, ptY1];
+    updateCropBadgeAndInputs();
+    updateCropToolbarPosition();
+  }
+
+  function onCropResized(lastL, lastT, lastW, lastH) {
+    const { scaleX, scaleY } = getOverlayScale();
+    const ptX0 = Math.max(0, lastL / scaleX);
+    const ptY0 = Math.max(0, lastT / scaleY);
+    const ptX1 = Math.min(state.pageWidthPt, (lastL + lastW) / scaleX);
+    const ptY1 = Math.min(state.pageHeightPt, (lastT + lastH) / scaleY);
+    state.cropCoordsPt = [ptX0, ptY0, ptX1, ptY1];
+    updateCropBadgeAndInputs();
+    updateCropToolbarPosition();
+  }
+
+  makeDraggable(box, pill, onCropMoved, onCropMoved);
+  makeDraggable(box, box, onCropMoved, onCropMoved);
+  makeResizable(box, onCropResized, onCropResized);
+
+  interactiveOverlay.appendChild(box);
+  activeCropBox = box;
+
+  // Apply current aspect ratio setting if locked
+  if (state.cropRatio && state.cropRatio !== "free") {
+    applyAspectRatioToCurrentBox(state.cropRatio);
+  } else {
+    updateCropBadgeAndInputs();
+    updateCropToolbarPosition();
+  }
+
+  // Viewport scroll & resize listeners to keep toolbar clamped
+  const canvasViewportEl = document.getElementById("canvasViewport");
+  const onViewportScrollOrResize = () => updateCropToolbarPosition();
+  if (canvasViewportEl) canvasViewportEl.addEventListener("scroll", onViewportScrollOrResize, { passive: true });
+  window.addEventListener("resize", onViewportScrollOrResize, { passive: true });
+}
+
+function startVisualCrop() {
+  if (!state.docId) return showToast("No document loaded", "error");
+
+  if (state.isVisualCropping) {
+    cancelVisualCrop();
+    return;
+  }
+
+  if (activeTransformBox) cancelTransformBox(false);
+  deselectFormField();
+
+  state.isVisualCropping = true;
+
+  const btn = document.getElementById("btnStartVisualCrop");
+  if (btn) btn.classList.add("active");
+
+  const card = document.getElementById("visualCropActiveCard");
+  if (card) card.style.display = "block";
+
+  renderVisualCropBox();
+  showToast("Visual crop tool active: Drag handles to frame crop area.", "info");
+}
+
 function setupPageCroppingAndTrimming() {
   const btnAutoTrimMargins = document.getElementById("btnAutoTrimMargins");
   const btnApplyManualCrop = document.getElementById("btnApplyManualCrop");
   const btnStartVisualCrop = document.getElementById("btnStartVisualCrop");
+  const btnCancelVisualCropSidebar = document.getElementById("btnCancelVisualCropSidebar");
+  const sidebarCropRatioSelect = document.getElementById("sidebarCropRatioSelect");
+  const btnSidebarAutoFitCrop = document.getElementById("btnSidebarAutoFitCrop");
+  const btnSidebarResetCrop = document.getElementById("btnSidebarResetCrop");
+  const btnSidebarApplyCrop = document.getElementById("btnSidebarApplyCrop");
 
   if (btnAutoTrimMargins) {
     btnAutoTrimMargins.addEventListener("click", async () => {
@@ -7420,6 +7856,7 @@ function setupPageCroppingAndTrimming() {
         });
         if (!res.ok) throw new Error("Failed to crop page");
         const data = await res.json();
+        if (state.isVisualCropping) cancelVisualCrop();
         updateUndoRedoButtons(true, false);
         showToast(data.message || "Page cropped!", "success");
         await loadPage(state.currentPage);
@@ -7433,11 +7870,70 @@ function setupPageCroppingAndTrimming() {
 
   if (btnStartVisualCrop) {
     btnStartVisualCrop.addEventListener("click", () => {
-      state.isVisualCropping = !state.isVisualCropping;
-      btnStartVisualCrop.classList.toggle("active", state.isVisualCropping);
-      if (state.isVisualCropping) {
-        showToast("Drag a rectangle on page canvas to define crop box.", "info");
-      }
+      startVisualCrop();
+    });
+  }
+
+  if (btnCancelVisualCropSidebar) {
+    btnCancelVisualCropSidebar.addEventListener("click", () => {
+      cancelVisualCrop();
+    });
+  }
+
+  if (sidebarCropRatioSelect) {
+    sidebarCropRatioSelect.addEventListener("change", (e) => {
+      applyAspectRatioToCurrentBox(e.target.value);
+    });
+  }
+
+  if (btnSidebarAutoFitCrop) {
+    btnSidebarAutoFitCrop.addEventListener("click", () => {
+      autoFitCropContent();
+    });
+  }
+
+  if (btnSidebarResetCrop) {
+    btnSidebarResetCrop.addEventListener("click", () => {
+      state.cropCoordsPt = [0, 0, state.pageWidthPt || 595, state.pageHeightPt || 842];
+      syncCropBoxToScreen();
+    });
+  }
+
+  if (btnSidebarApplyCrop) {
+    btnSidebarApplyCrop.addEventListener("click", () => {
+      const applyAll = document.getElementById("cropAllPages")?.checked || false;
+      applyVisualCrop(applyAll);
+    });
+  }
+
+  // Live input sync from sidebar margin fields
+  ["cropMarginLeft", "cropMarginTop", "cropMarginRight", "cropMarginBottom"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      if (!state.isVisualCropping || !activeCropBox) return;
+      const pW = state.pageWidthPt || 595;
+      const pH = state.pageHeightPt || 842;
+      const l = parseFloat(document.getElementById("cropMarginLeft")?.value || 0) || 0;
+      const t = parseFloat(document.getElementById("cropMarginTop")?.value || 0) || 0;
+      const r = parseFloat(document.getElementById("cropMarginRight")?.value || 0) || 0;
+      const b = parseFloat(document.getElementById("cropMarginBottom")?.value || 0) || 0;
+
+      const x0 = Math.max(0, Math.min(l, pW - 20));
+      const y0 = Math.max(0, Math.min(t, pH - 20));
+      const x1 = Math.min(pW, Math.max(x0 + 20, pW - r));
+      const y1 = Math.min(pH, Math.max(y0 + 20, pH - b));
+
+      state.cropCoordsPt = [x0, y0, x1, y1];
+      syncCropBoxToScreen();
+    });
+  });
+
+  const mainCheck = document.getElementById("cropAllPages");
+  if (mainCheck) {
+    mainCheck.addEventListener("change", (e) => {
+      const floatingCheck = activeCropBox ? activeCropBox.querySelector("#cropFloatingAllPages") : null;
+      if (floatingCheck) floatingCheck.checked = e.target.checked;
     });
   }
 }

@@ -2551,18 +2551,78 @@ class PDFEngine:
             doc.close()
 
     @staticmethod
-    def crop_page(pdf_bytes: bytes, page_num: int, crop_box: List[float], apply_all_pages: bool = False) -> bytes:
-        """Set page cropbox to trim margins for a single page or all pages."""
+    def get_content_bounds(pdf_bytes: bytes, page_num: int, padding: float = 18.0) -> Dict[str, Any]:
+        """Detect the bounding box of text, drawings, and images on a page."""
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         try:
-            rect = fitz.Rect(crop_box)
+            page_idx = max(0, min(page_num - 1, len(doc) - 1))
+            page = doc[page_idx]
+            content_rects = []
+            for b in page.get_text("blocks"):
+                if b[4].strip():
+                    content_rects.append(fitz.Rect(b[:4]))
+            for d in page.get_drawings():
+                r = d.get("rect")
+                if r:
+                    content_rects.append(fitz.Rect(r))
+            for img_info in page.get_images():
+                for r in page.get_image_rects(img_info[0]):
+                    content_rects.append(fitz.Rect(r))
+
+            w, h = page.rect.width, page.rect.height
+            if not content_rects:
+                return {
+                    "bbox": [round(w * 0.05, 1), round(h * 0.05, 1), round(w * 0.95, 1), round(h * 0.95, 1)],
+                    "page_width": w,
+                    "page_height": h,
+                    "has_content": False
+                }
+
+            union_rect = content_rects[0]
+            for r in content_rects[1:]:
+                union_rect |= r
+
+            padded_rect = fitz.Rect(
+                max(0, union_rect.x0 - padding),
+                max(0, union_rect.y0 - padding),
+                min(page.rect.width, union_rect.x1 + padding),
+                min(page.rect.height, union_rect.y1 + padding)
+            )
+
+            return {
+                "bbox": [round(padded_rect.x0, 1), round(padded_rect.y0, 1), round(padded_rect.x1, 1), round(padded_rect.y1, 1)],
+                "page_width": w,
+                "page_height": h,
+                "has_content": True
+            }
+        finally:
+            doc.close()
+
+    @staticmethod
+    def crop_page(pdf_bytes: bytes, page_num: int, crop_box: List[float], apply_all_pages: bool = False) -> bytes:
+        """Set page cropbox to trim margins for a single page or all pages."""
+        if not crop_box or len(crop_box) < 4:
+            raise ValueError("Invalid crop box coordinates.")
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            x0, y0, x1, y1 = crop_box[:4]
+            rect = fitz.Rect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+            if rect.width < 10 or rect.height < 10:
+                raise ValueError("Crop dimensions must be at least 10x10 pt.")
+
             if apply_all_pages:
                 for page in doc:
-                    page.set_cropbox(rect)
+                    page_rect = rect & page.rect
+                    if page_rect.width >= 10 and page_rect.height >= 10:
+                        page.set_cropbox(page_rect)
             else:
                 page_idx = max(0, min(page_num - 1, len(doc) - 1))
                 page = doc[page_idx]
-                page.set_cropbox(rect)
+                page_rect = rect & page.rect
+                if page_rect.width >= 10 and page_rect.height >= 10:
+                    page.set_cropbox(page_rect)
+
             output = io.BytesIO()
             doc.save(output, garbage=3, deflate=True)
             return output.getvalue()
