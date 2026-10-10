@@ -402,6 +402,7 @@ async function handlePdfUpload(file, password = null) {
     state.docId = data.doc_id;
     state.filename = data.filename;
     state.docInfo = data.info;
+    state.fileSize = file.size;
 
     if (data.requires_password || (data.info && data.info.is_encrypted && data.info.page_count === 0)) {
       openPasswordPromptModal(data.filename);
@@ -4554,52 +4555,48 @@ function setupToolActions() {
     }
   }
 
-  async function addActiveDocumentToMergeQueue() {
+  function addActiveDocumentToMergeQueue() {
     if (!state.docId) {
       showToast("No active document is currently loaded in PDF Studio.", "warning");
       return;
     }
 
-    setLoading(true, "Preparing current document for merge...");
-    try {
-      const res = await fetch(`/api/document/${state.docId}/download`);
-      if (!res.ok) throw new Error("Failed to retrieve current document.");
-      const blob = await res.blob();
-      const fname = (state.docInfo && state.docInfo.filename) || "document.pdf";
-      const fileObj = new File([blob], fname, { type: "application/pdf" });
+    const fname = (state.docInfo && state.docInfo.filename) || (document.getElementById("activeFilename")?.textContent) || "document.pdf";
+    const cleanName = fname.replace(" (Active)", "").trim();
+    const thumbUrl = `/api/document/${state.docId}/page/1/image?zoom=0.25&format=jpeg&v=${state.docVersion || 1}`;
 
-      // Retrieve first page image thumbnail
-      let thumbUrl = null;
-      try {
-        const thumbRes = await fetch(`/api/document/${state.docId}/page/1/image?zoom=0.25&format=jpeg`);
-        if (thumbRes.ok) {
-          const thumbBlob = await thumbRes.blob();
-          thumbUrl = await new Promise(resolve => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.readAsDataURL(thumbBlob);
-          });
-        }
-      } catch (_) {}
+    const queueItem = {
+      id: "active-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
+      docId: state.docId,
+      file: null, // Asynchronously loaded in background
+      filename: cleanName + " (Active)",
+      size: state.fileSize || 0,
+      pageCount: state.totalPages || (state.docInfo && state.docInfo.page_count) || 1,
+      thumbnail: thumbUrl,
+      rotation: 0,
+      isCurrentDoc: true,
+      readyPromise: null
+    };
 
-      mergeState.files.push({
-        id: "active-" + Date.now(),
-        file: fileObj,
-        filename: fname + " (Active)",
-        size: blob.size,
-        pageCount: state.totalPages || 1,
-        thumbnail: thumbUrl,
-        rotation: 0,
-        isCurrentDoc: true
+    // Instant non-blocking addition to merge queue (0ms UI latency)
+    mergeState.files.push(queueItem);
+    renderMergeViews();
+    showToast(`Added active document "${cleanName}" to merge queue!`, "success");
+
+    // Pre-fetch document binary in background so merge submission is instant
+    queueItem.readyPromise = fetch(`/api/document/${state.docId}/download`)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to download active document");
+        return res.blob();
+      })
+      .then(blob => {
+        queueItem.file = new File([blob], cleanName, { type: "application/pdf" });
+        if (!queueItem.size) queueItem.size = blob.size;
+        updateMergeSummaries();
+      })
+      .catch(err => {
+        console.warn("Background fetch of active PDF blob:", err);
       });
-
-      renderMergeViews();
-      showToast(`Added active document "${fname}" to merge queue!`, "success");
-    } catch (err) {
-      showToast(err.message, "error");
-    } finally {
-      setLoading(false);
-    }
   }
 
   function renderMergeSidebar() {
@@ -4967,15 +4964,31 @@ function setupToolActions() {
     let outName = (outInput && outInput.value.trim()) || "merged_document.pdf";
     if (!outName.toLowerCase().endsWith(".pdf")) outName += ".pdf";
 
-    const formData = new FormData();
-    for (const f of mergeState.files) {
-      formData.append("files", f.file);
-    }
-    formData.append("rotations", mergeState.files.map(f => f.rotation || 0).join(","));
-    formData.append("output_filename", outName);
-
     setLoading(true, `Merging ${mergeState.files.length} PDF documents...`);
     try {
+      // Ensure all queued active documents have resolved their files
+      for (const f of mergeState.files) {
+        if (!f.file && f.readyPromise) {
+          await f.readyPromise;
+        }
+        if (!f.file && f.docId) {
+          const res = await fetch(`/api/document/${f.docId}/download`);
+          if (res.ok) {
+            const blob = await res.blob();
+            f.file = new File([blob], f.filename.replace(" (Active)", "").trim() || "document.pdf", { type: "application/pdf" });
+          }
+        }
+      }
+
+      const formData = new FormData();
+      for (const f of mergeState.files) {
+        if (f.file) {
+          formData.append("files", f.file);
+        }
+      }
+      formData.append("rotations", mergeState.files.map(f => f.rotation || 0).join(","));
+      formData.append("output_filename", outName);
+
       const res = await fetch("/api/merge", { method: "POST", body: formData });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -4998,6 +5011,13 @@ function setupToolActions() {
       setLoading(false);
     }
   }
+
+  window.addActiveDocumentToMergeQueue = addActiveDocumentToMergeQueue;
+  window.clearMergeQueue = function() {
+    mergeState.files = [];
+    renderMergeViews();
+    showToast("Merge queue cleared.", "info");
+  };
 
   window.openMergeModal = function() {
     renderMergeViews();
