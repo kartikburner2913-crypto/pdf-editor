@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.9.5" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.6" />
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -1339,30 +1339,90 @@
           <!-- 12. PASSWORD & ENCRYPTION -->
           <div id="tab-protect" class="tab-pane">
             <div class="pane-header">
-              <h3>Password Protection</h3>
-              <p class="help-text">Lock your PDF with industrial-strength AES-256 bit encryption.</p>
+              <h3>Security &amp; Password</h3>
+              <p class="help-text">Lock with AES-256 bit encryption or permanently remove passwords to decrypt.</p>
             </div>
 
-            <div class="form-group">
-              <label for="protectPassword">Set Document Password:</label>
-              <input type="password" id="protectPassword" placeholder="Enter secure password..." class="form-control" />
+            <!-- Security Status Card -->
+            <div class="security-status-card" id="securityStatusCard" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Document Security</span>
+                <span id="docSecurityBadge" class="audit-pill audit-pill-warn" style="font-size: 11px;">Checking...</span>
+              </div>
+              <p id="docSecurityDesc" style="font-size: 11.5px; color: var(--text-muted); margin: 6px 0 0 0; line-height: 1.4;">
+                Checking document encryption...
+              </p>
             </div>
 
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input type="checkbox" id="permPrint" checked /> Allow Printing
-              </label>
-              <label class="checkbox-label" style="margin-top: 6px;">
-                <input type="checkbox" id="permCopy" checked /> Allow Content Copying
-              </label>
-              <label class="checkbox-label" style="margin-top: 6px;">
-                <input type="checkbox" id="permEdit" /> Allow Modifications
-              </label>
+            <!-- Section 1: Unlock / Remove Password (Visible if protected or when toggled) -->
+            <div id="unlockSectionCard" class="card-box" style="display: none; margin-bottom: 14px; border: 1px solid #10b981; border-radius: 8px; padding: 12px; background: rgba(16, 185, 129, 0.04);">
+              <h4 style="margin: 0 0 4px 0; font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+                Unlock &amp; Decrypt PDF
+              </h4>
+              <p class="help-text" style="margin-bottom: 10px; font-size: 11px;">
+                Enter the password to permanently strip AES-256 encryption and restore full permissions (editing, printing, copying).
+              </p>
+              <div class="form-group" style="margin-bottom: 10px;">
+                <label for="unlockDocPassword" style="font-size: 11.5px;">Current Password:</label>
+                <div style="position: relative;">
+                  <input type="password" id="unlockDocPassword" placeholder="Enter password to unlock..." class="form-control" style="padding-right: 32px;" />
+                  <button type="button" class="btn-toggle-pw" onclick="togglePasswordVisibility('unlockDocPassword')" title="Show / Hide Password" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 0;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </button>
+                </div>
+              </div>
+              <button id="btnUnlockDocument" class="btn btn-success btn-block">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+                <span>Remove Password &amp; Decrypt</span>
+              </button>
             </div>
 
-            <button id="btnApplyPassword" class="btn btn-danger btn-block">
-              <span>Encrypt &amp; Protect Document</span>
-            </button>
+            <!-- Section 2: Protect PDF (Encrypt with AES-256) -->
+            <div id="protectSectionCard" class="card-box" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; background: var(--bg-secondary);">
+              <h4 style="margin: 0 0 4px 0; font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                Protect with Password
+              </h4>
+              <p class="help-text" style="margin-bottom: 10px; font-size: 11px;">
+                Lock with industrial-strength AES-256 bit encryption and control print, copy, and edit permissions.
+              </p>
+
+              <div class="form-group">
+                <label for="protectPassword" style="font-size: 11.5px;">Set Document Password:</label>
+                <div style="position: relative;">
+                  <input type="password" id="protectPassword" placeholder="Enter secure password..." class="form-control" style="padding-right: 32px;" />
+                  <button type="button" class="btn-toggle-pw" onclick="togglePasswordVisibility('protectPassword')" title="Show / Hide Password" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 0;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label class="checkbox-label" style="font-size: 12px;">
+                  <input type="checkbox" id="permPrint" checked /> Allow Printing
+                </label>
+                <label class="checkbox-label" style="margin-top: 6px; font-size: 12px;">
+                  <input type="checkbox" id="permCopy" checked /> Allow Content Copying
+                </label>
+                <label class="checkbox-label" style="margin-top: 6px; font-size: 12px;">
+                  <input type="checkbox" id="permEdit" /> Allow Modifications
+                </label>
+              </div>
+
+              <button id="btnApplyPassword" class="btn btn-danger btn-block">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <span>Encrypt &amp; Protect Document</span>
+              </button>
+            </div>
+
+            <!-- Standalone Unlock Tool Trigger Button -->
+            <div style="margin-top: 14px; text-align: center;">
+              <button type="button" id="btnOpenStandaloneUnlockModal" class="btn btn-outline btn-sm btn-block" style="font-size: 11.5px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+                <span>Unlock Another PDF File...</span>
+              </button>
+            </div>
           </div>
 
           <!-- 13. ANNOTATE (INK, STAMPS, NOTES) -->
@@ -2271,6 +2331,92 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=2.9.9" defer></script>
+  <!-- Modal: Password Required Prompt for Encrypted Documents -->
+  <div id="passwordPromptModal" class="modal">
+    <div class="modal-content" style="max-width: 440px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #ef4444; display: flex; align-items: center; justify-content: center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px;">Password Protected PDF</h3>
+            <span style="font-size: 11px; color: var(--text-muted);" id="promptModalFilename">Enter password to decrypt</span>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closePasswordPromptModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px;">
+        <p style="font-size: 12.5px; color: var(--text-main); margin: 0 0 12px 0; line-height: 1.45;">
+          This document is protected with encryption. Enter the document password to unlock and edit its contents.
+        </p>
+        <div id="passwordPromptError" class="alert alert-danger" style="display: none; padding: 8px 12px; font-size: 11.5px; margin-bottom: 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #dc2626;">
+          Incorrect password. Please try again.
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="promptModalPassword" style="font-size: 12px; font-weight: 600;">Password:</label>
+          <div style="position: relative;">
+            <input type="password" id="promptModalPassword" class="form-control" placeholder="Enter password..." style="padding-right: 32px;" autofocus />
+            <button type="button" class="btn-toggle-pw" onclick="togglePasswordVisibility('promptModalPassword')" title="Show / Hide Password" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 0;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 12px 20px; background: var(--bg-secondary); display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" onclick="closePasswordPromptModal()">Cancel</button>
+        <button type="button" id="btnSubmitPasswordPrompt" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+          <span>Unlock &amp; Open</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Standalone Unlock PDF Tool (Feature 29) -->
+  <div id="standaloneUnlockModal" class="modal">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); color: #10b981; display: flex; align-items: center; justify-content: center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px;">Unlock &amp; Decrypt PDF</h3>
+            <span style="font-size: 11px; color: var(--text-muted);">Permanently remove passwords &amp; restrictions</span>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('standaloneUnlockModal')">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px;">
+        <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 14px 0;">
+          Select any password-protected PDF to strip AES-256 encryption, remove printing and editing restrictions, and download a clean unencrypted copy.
+        </p>
+        <div class="form-group">
+          <label style="font-size: 12px; font-weight: 600;">Select Encrypted PDF:</label>
+          <input type="file" id="standaloneUnlockFileInput" accept="application/pdf" class="form-control" style="font-size: 12px;" />
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="standaloneUnlockPassword" style="font-size: 12px; font-weight: 600;">Document Password:</label>
+          <div style="position: relative;">
+            <input type="password" id="standaloneUnlockPassword" class="form-control" placeholder="Enter password to unlock..." style="padding-right: 32px;" />
+            <button type="button" class="btn-toggle-pw" onclick="togglePasswordVisibility('standaloneUnlockPassword')" title="Show / Hide Password" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 0;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+        </div>
+        <div id="standaloneUnlockError" style="display: none; padding: 8px 12px; font-size: 11.5px; margin-top: 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #dc2626;"></div>
+      </div>
+      <div class="modal-footer" style="padding: 12px 20px; background: var(--bg-secondary); display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('standaloneUnlockModal')">Cancel</button>
+        <button type="button" id="btnExecuteStandaloneUnlock" class="btn btn-success" style="display: flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Unlock &amp; Download PDF</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js?v=2.10.0" defer></script>
 </body>
 </html>

@@ -19,12 +19,18 @@ class PDFEngine:
 
 
     @staticmethod
-    def get_document_info(pdf_bytes: bytes) -> Dict[str, Any]:
-        """Extract metadata, page count, and page dimensions."""
+    def get_document_info(pdf_bytes: bytes, password: Optional[str] = None) -> Dict[str, Any]:
+        """Extract metadata, page count, and page dimensions, with optional password authentication."""
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         try:
+            if doc.is_encrypted and password:
+                try:
+                    doc.authenticate(password)
+                except Exception:
+                    pass
+
+            is_enc = bool(doc.is_encrypted or doc.needs_pass)
             pages_info = []
-            is_enc = bool(doc.is_encrypted)
             if not is_enc:
                 for i in range(len(doc)):
                     page = doc[i]
@@ -1772,6 +1778,49 @@ class PDFEngine:
                 user_pw=user_password,
                 owner_pw=owner_pw,
                 permissions=perms,
+                garbage=3,
+                deflate=True
+            )
+            return output.getvalue()
+        finally:
+            doc.close()
+
+    @staticmethod
+    def is_pdf_encrypted(pdf_bytes: bytes) -> bool:
+        """Quick check whether PDF document requires password authentication."""
+        if not pdf_bytes or len(pdf_bytes) == 0:
+            return False
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            is_enc = bool(doc.is_encrypted or doc.needs_pass)
+            doc.close()
+            return is_enc
+        except Exception:
+            return False
+
+    @staticmethod
+    def unlock_pdf(pdf_bytes: bytes, password: str = "") -> bytes:
+        """
+        Permanently remove password protection and decrypt PDF document.
+        Strips AES-256/RC4 encryption and permissions restrictions, returning
+        a clean, unencrypted PDF with full editing, printing, and copying capabilities.
+        Raises ValueError if the provided password is incorrect.
+        """
+        if not pdf_bytes or len(pdf_bytes) == 0:
+            raise ValueError("The provided PDF file is empty.")
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            if doc.is_encrypted or doc.needs_pass:
+                pw = password if password is not None else ""
+                auth_res = doc.authenticate(pw)
+                if not auth_res:
+                    raise ValueError("Incorrect password. Unable to unlock document.")
+
+            output = io.BytesIO()
+            doc.save(
+                output,
+                encryption=fitz.PDF_ENCRYPT_NONE,
                 garbage=3,
                 deflate=True
             )

@@ -328,6 +328,10 @@ class ProtectRequest(BaseModel):
     allow_edit: bool = False
 
 
+class UnlockRequest(BaseModel):
+    password: str = ""
+
+
 class FormFillRequest(BaseModel):
     values: Dict[str, Any]
 
@@ -581,18 +585,31 @@ async def serve_home():
 
 
 @app.post("/api/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-    """Upload a PDF file and initialize session state."""
+async def upload_pdf(file: UploadFile = File(...), password: Optional[str] = Form(None)):
+    """Upload a PDF file and initialize session state, supporting encrypted PDFs."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     contents = await file.read()
     validate_pdf_binary(contents)
 
+    is_enc = PDFEngine.is_pdf_encrypted(contents)
+    requires_pw = is_enc
+    if is_enc and password:
+        try:
+            contents = PDFEngine.unlock_pdf(contents, password)
+            is_enc = False
+            requires_pw = False
+        except ValueError:
+            requires_pw = True
+
     try:
-        info = PDFEngine.get_document_info(contents)
+        info = PDFEngine.get_document_info(contents, password=password if is_enc else None)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid or corrupted PDF: {str(e)}")
+        if requires_pw:
+            info = {"page_count": 0, "is_encrypted": True, "pages": [], "metadata": {}}
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid or corrupted PDF: {str(e)}")
 
     doc_id = uuid.uuid4().hex
     prune_store()
@@ -610,6 +627,8 @@ async def upload_pdf(file: UploadFile = File(...)):
     return {
         "doc_id": doc_id,
         "filename": sanitize_filename(file.filename),
+        "is_encrypted": is_enc,
+        "requires_password": requires_pw,
         "info": info
     }
 
@@ -1105,6 +1124,28 @@ async def protect_pdf(doc_id: str, req: ProtectRequest):
         return {"status": "success", "message": "Password protection applied successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error protecting PDF: {str(e)}")
+
+
+@app.post("/api/document/{doc_id}/unlock")
+async def unlock_pdf(doc_id: str, req: UnlockRequest):
+    """Remove password encryption from current PDF."""
+    doc = get_doc(doc_id)
+    try:
+        unlocked = PDFEngine.unlock_pdf(
+            doc["current_bytes"],
+            password=req.password
+        )
+        save_new_version(doc_id, unlocked)
+        info = PDFEngine.get_document_info(unlocked)
+        return {
+            "status": "success",
+            "message": "Password protection removed successfully.",
+            "info": info
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error unlocking PDF: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/undo")
@@ -2172,6 +2213,28 @@ async def direct_convert_pptx_to_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error converting PowerPoint to PDF: {str(e)}")
 
+
+@app.post("/api/unlock-pdf")
+async def direct_unlock_pdf(file: UploadFile = File(...), password: str = Form("")):
+    """Upload an encrypted PDF and directly download decrypted/unlocked PDF."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    contents = await file.read()
+    validate_pdf_binary(contents)
+    try:
+        unlocked_bytes = PDFEngine.unlock_pdf(contents, password)
+        base_name = os.path.splitext(file.filename)[0]
+        out_name = sanitize_filename(f"{base_name}_unlocked.pdf")
+        encoded_name = urllib.parse.quote(out_name)
+        return StreamingResponse(
+            io.BytesIO(unlocked_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"; filename*=UTF-8\'\'{encoded_name}'}
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error unlocking PDF: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/page-numbers")

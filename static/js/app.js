@@ -295,6 +295,7 @@ function setupTabs() {
       if (targetId === "tab-forms") loadFormFields();
       if (targetId === "tab-bookmarks") loadBookmarks();
       if (targetId === "tab-optimize") loadMetadataAndAudit();
+      if (targetId === "tab-protect") updateSecurityTabUI();
 
       // Reset specific modes if tab changed
       if (targetId !== "tab-add" && targetId !== "tab-edit") {
@@ -395,6 +396,12 @@ async function handlePdfUpload(file) {
     state.docId = data.doc_id;
     state.filename = data.filename;
     state.docInfo = data.info;
+
+    if (data.requires_password || (data.info && data.info.is_encrypted && data.info.page_count === 0)) {
+      openPasswordPromptModal(data.filename);
+      return;
+    }
+
     state.totalPages = data.info.page_count;
     state.currentPage = 1;
 
@@ -421,6 +428,7 @@ async function handlePdfUpload(file) {
     updatePageOrderInput();
     populateThumbnails();
     await loadPage(state.currentPage);
+    updateSecurityTabUI();
     showToast("Document loaded into studio!", "success");
   } catch (error) {
     showToast(error.message, "error");
@@ -4485,6 +4493,8 @@ function setupToolActions() {
       showToast("Document encrypted with AES-256!", "success");
       updateUndoRedoButtons(true, false);
       document.getElementById("protectPassword").value = "";
+      if (state.docInfo) state.docInfo.is_encrypted = true;
+      updateSecurityTabUI();
       await loadPage(state.currentPage);
     } catch (err) {
       showToast(err.message, "error");
@@ -4492,6 +4502,126 @@ function setupToolActions() {
       setLoading(false);
     }
   });
+
+  // Feature 29: Unlock PDF (Remove Password) from current document
+  const btnUnlockDocument = document.getElementById("btnUnlockDocument");
+  if (btnUnlockDocument) {
+    btnUnlockDocument.addEventListener("click", async () => {
+      const password = document.getElementById("unlockDocPassword")?.value || "";
+      if (!password) {
+        showToast("Please enter the document password.", "error");
+        return;
+      }
+      setLoading(true, "Decrypting and removing password...");
+      try {
+        const res = await fetch(`/api/document/${state.docId}/unlock`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password })
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.detail || "Incorrect password.");
+
+        showToast("Password removed! Document is now unencrypted.", "success");
+        updateUndoRedoButtons(true, false);
+        const inputEl = document.getElementById("unlockDocPassword");
+        if (inputEl) inputEl.value = "";
+        state.docInfo = result.info;
+        updateSecurityTabUI();
+        await loadPage(state.currentPage);
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    });
+  }
+
+  // Standalone Unlock PDF Tool modal handlers
+  const btnOpenStandaloneUnlock = document.getElementById("btnOpenStandaloneUnlockModal");
+  if (btnOpenStandaloneUnlock) {
+    btnOpenStandaloneUnlock.addEventListener("click", () => {
+      const modal = document.getElementById("standaloneUnlockModal");
+      const err = document.getElementById("standaloneUnlockError");
+      if (err) err.style.display = "none";
+      const pwIn = document.getElementById("standaloneUnlockPassword");
+      if (pwIn) pwIn.value = "";
+      const fileIn = document.getElementById("standaloneUnlockFileInput");
+      if (fileIn) fileIn.value = "";
+      if (modal) modal.classList.add("active");
+    });
+  }
+
+  const btnExecuteStandaloneUnlock = document.getElementById("btnExecuteStandaloneUnlock");
+  if (btnExecuteStandaloneUnlock) {
+    btnExecuteStandaloneUnlock.addEventListener("click", async () => {
+      const fileInput = document.getElementById("standaloneUnlockFileInput");
+      const pwInput = document.getElementById("standaloneUnlockPassword");
+      const errEl = document.getElementById("standaloneUnlockError");
+
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        if (errEl) {
+          errEl.textContent = "Please select a PDF file.";
+          errEl.style.display = "block";
+        }
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const password = pwInput ? pwInput.value : "";
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("password", password);
+
+      setLoading(true, "Decrypting and unlocking PDF...");
+      try {
+        const res = await fetch("/api/unlock-pdf", {
+          method: "POST",
+          body: formData
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to unlock PDF. Please check the password.");
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const origBase = file.name.replace(/\.[^/.]+$/, "");
+        a.href = url;
+        a.download = `${origBase}_unlocked.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        closeModal("standaloneUnlockModal");
+        showToast("PDF unlocked and downloaded successfully!", "success");
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = err.message || "Failed to unlock document.";
+          errEl.style.display = "block";
+        }
+      } finally {
+        setLoading(false);
+      }
+    });
+  }
+
+  // Password Prompt Modal event listeners
+  const btnSubmitPasswordPrompt = document.getElementById("btnSubmitPasswordPrompt");
+  if (btnSubmitPasswordPrompt) {
+    btnSubmitPasswordPrompt.addEventListener("click", submitPasswordPrompt);
+  }
+  const promptModalPasswordInput = document.getElementById("promptModalPassword");
+  if (promptModalPasswordInput) {
+    promptModalPasswordInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitPasswordPrompt();
+      }
+    });
+  }
 
   // 13. Annotations, Ink, Stamps, Sticky Notes
   btnSaveInkStrokes.addEventListener("click", async () => {
@@ -5650,6 +5780,8 @@ const COMMANDS = [
   { name: "Redact Sensitive Text", category: "Security", action: () => document.querySelector('[data-tab="tab-redact"]').click() },
   { name: "Apply Watermark", category: "Security", action: () => document.querySelector('[data-tab="tab-watermark"]').click() },
   { name: "Set AES-256 Password", category: "Security", action: () => document.querySelector('[data-tab="tab-protect"]').click() },
+  { name: "Unlock PDF (Remove Password)", category: "Security", action: () => { document.querySelector('[data-tab="tab-protect"]').click(); updateSecurityTabUI(); } },
+  { name: "Standalone Unlock / Decrypt Tool", category: "Security", action: () => document.getElementById("btnOpenStandaloneUnlockModal")?.click() },
   { name: "Freehand Pencil Drawing", category: "Tools", action: () => { document.querySelector('[data-tab="tab-annotate"]').click(); toggleInkMode(true); } },
   { name: "Place Sticky Note", category: "Tools", action: () => { document.querySelector('[data-tab="tab-annotate"]').click(); btnStartStickyNotePlacement.click(); } },
   { name: "Extract Full Document Text", category: "Tools", action: () => btnPreviewText.click() },
@@ -7660,6 +7792,128 @@ function setupPdfCompressionFeature() {
       showToast("Download started!", "success");
     });
   }
+}
+
+// Global Security & Password Helpers (Feature 29: Unlock PDF)
+window.openPasswordPromptModal = function(filename) {
+  const modal = document.getElementById("passwordPromptModal");
+  if (!modal) return;
+  const fnEl = document.getElementById("promptModalFilename");
+  if (fnEl) fnEl.textContent = filename || state.filename || "Enter password to decrypt";
+  const pwInput = document.getElementById("promptModalPassword");
+  if (pwInput) pwInput.value = "";
+  const errEl = document.getElementById("passwordPromptError");
+  if (errEl) errEl.style.display = "none";
+  modal.classList.add("active");
+  setTimeout(() => { if (pwInput) pwInput.focus(); }, 120);
+};
+
+window.closePasswordPromptModal = function() {
+  const modal = document.getElementById("passwordPromptModal");
+  if (modal) modal.classList.remove("active");
+};
+
+window.togglePasswordVisibility = function(inputId) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  el.type = el.type === "password" ? "text" : "password";
+};
+
+async function submitPasswordPrompt() {
+  const pwInput = document.getElementById("promptModalPassword");
+  const errEl = document.getElementById("passwordPromptError");
+  const password = pwInput ? pwInput.value : "";
+  if (!password) {
+    if (errEl) {
+      errEl.textContent = "Please enter the document password.";
+      errEl.style.display = "block";
+    }
+    return;
+  }
+
+  setLoading(true, "Unlocking document...");
+  try {
+    const res = await fetch(`/api/document/${state.docId}/unlock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.detail || "Incorrect password.");
+    }
+
+    closePasswordPromptModal();
+    state.docInfo = result.info;
+    state.totalPages = result.info.page_count;
+    state.currentPage = 1;
+
+    activeFilename.textContent = state.filename;
+    totalPagesSpan.textContent = state.totalPages;
+    pageNumberInput.value = 1;
+    pageNumberInput.max = state.totalPages;
+
+    const firstPage = state.docInfo && state.docInfo.pages && state.docInfo.pages[0];
+    if (firstPage) {
+      state.pageWidthPt = firstPage.width;
+      state.pageHeightPt = firstPage.height;
+    }
+
+    uploadSection.style.display = "none";
+    workspaceSection.style.display = "flex";
+    topNavActions.style.display = "flex";
+
+    state.zoom = calculateOptimalZoom("fit-page");
+    updateZoomSelectLabel();
+    updateUndoRedoButtons(false, false);
+    updatePageOrderInput();
+    populateThumbnails();
+    await loadPage(1);
+    updateSecurityTabUI();
+    showToast("PDF unlocked and decrypted successfully!", "success");
+  } catch (err) {
+    if (errEl) {
+      errEl.textContent = err.message || "Incorrect password. Please try again.";
+      errEl.style.display = "block";
+    }
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function updateSecurityTabUI() {
+  const badge = document.getElementById("docSecurityBadge");
+  const desc = document.getElementById("docSecurityDesc");
+  const unlockCard = document.getElementById("unlockSectionCard");
+  const protectCard = document.getElementById("protectSectionCard");
+
+  if (!badge) return;
+
+  let isEncrypted = state.docInfo ? Boolean(state.docInfo.is_encrypted) : false;
+
+  if (state.docId && state.docInfo && (state.docInfo.is_encrypted === undefined || state.docInfo.is_encrypted === false)) {
+    try {
+      const res = await fetch(`/api/document/${state.docId}/security-inspect`);
+      if (res.ok) {
+        const audit = await res.json();
+        isEncrypted = Boolean(audit.is_encrypted);
+        if (state.docInfo) state.docInfo.is_encrypted = isEncrypted;
+      }
+    } catch (_) {}
+  }
+
+  if (isEncrypted) {
+    badge.className = "audit-pill audit-pill-warn";
+    badge.textContent = "🔒 Encrypted (AES-256)";
+    if (desc) desc.textContent = "This document is password-protected. Print, copy, or editing restrictions may be enforced.";
+    if (unlockCard) unlockCard.style.display = "block";
+  } else {
+    badge.className = "audit-pill audit-pill-ok";
+    badge.textContent = "🔓 Unprotected (No Password)";
+    if (desc) desc.textContent = "This document has no password protection. You can encrypt it with AES-256 below.";
+    if (unlockCard) unlockCard.style.display = "none";
+  }
+  if (protectCard) protectCard.style.display = "block";
 }
 
 // Zero-Retention Security: Scrub session from server RAM/disk when user navigates away

@@ -76,7 +76,7 @@
 | 27 | Strong Compression | PRO | PASS | Advanced lossy compression with image quality/DPI control |
 | **SECURITY** | | | | |
 | 28 | Protect PDF (password encrypt) | Free | PASS | AES-256 with granular permissions |
-| 29 | Unlock PDF (remove password) | Free | FAIL | Can only apply protection, cannot remove/decrypt |
+| 29 | Unlock PDF (remove password) | Free | PASS | Permanently remove password encryption & restrictions |
 | 30 | Flatten PDF | Free | PASS | Form + annotation flattening |
 | **SIGNING** | | | | |
 | 31 | eSign PDF (create and apply signature) | Free | WARN | Can insert signature images but no draw/type signature creation workflow |
@@ -117,9 +117,9 @@
 - [x] **A5. Excel to PDF Conversion** — Implemented via `openpyxl` + `reportlab`
 - [x] **A6. PowerPoint to PDF Conversion** — Implemented via `python-pptx` + `reportlab`
 - [x] **A7. PDF to PDF/A Archival Conversion** — Implemented via `PyMuPDF` XMP / Ghostscript
+- [x] **A8. Unlock / Decrypt PDF** — Implemented via PyMuPDF authenticate + tobytes(PDF_ENCRYPT_NONE)
 
 ### Remaining Features (To Implement)
-- [ ] **A8. Unlock / Decrypt PDF**
 - [ ] **A9. OCR (Optical Character Recognition)**
 - [ ] **A10. eSign Workflow (draw/type signature + certificate signing)**
 - [ ] **A11. Batch Processing**
@@ -516,7 +516,7 @@ Add page thumbnail grid with checkboxes. Users click to select pages instead of 
 ### Phase 1 — Quick Wins (Week 1)
 | Priority | Feature | Effort | Impact |
 |----------|---------|--------|--------|
-| P0 | A8: Unlock PDF | 0.5 day | High — trivial to implement |
+| P0 | A8: Unlock PDF | 0.5 day | High — Implemented |
 | P0 | B1: Visual Crop Tool | 1 day | High — major UX gap |
 | P0 | B3: Compression Visualization | 0.5 day | Medium — polish |
 | P1 | A10: eSign Workflow | 2 days | High — signature creation UI |
