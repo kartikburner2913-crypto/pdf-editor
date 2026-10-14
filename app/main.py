@@ -549,6 +549,16 @@ class DeleteAnnotationRequest(BaseModel):
     index: int
 
 
+class UpdateAnnotationRequest(BaseModel):
+    page: int = 1
+    index: int
+    bbox: List[float]
+    type: Optional[str] = "rect"
+    color: Optional[List[float]] = None
+    fill_color: Optional[List[float]] = None
+    width: Optional[float] = 2.0
+
+
 class DeleteImageRequest(BaseModel):
     page: int = 1
     bbox: Optional[List[float]] = None
@@ -807,6 +817,26 @@ async def delete_annotation(doc_id: str, req: DeleteAnnotationRequest):
         return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Annotation deleted successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting annotation: {str(e)}")
+
+
+@app.post("/api/document/{doc_id}/annotations/update")
+async def update_annotation(doc_id: str, req: UpdateAnnotationRequest):
+    """Update an existing shape annotation's geometry, colors, and type."""
+    doc = get_doc(doc_id)
+    try:
+        new_pdf = PDFEngine.update_annotation(
+            doc["current_bytes"],
+            page_num=req.page,
+            annot_index=req.index,
+            bbox=req.bbox,
+            shape_type=req.type,
+            color=req.color,
+            fill_color=req.fill_color,
+            width=req.width
+        )
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Shape updated successfully.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating shape: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/add-shape")

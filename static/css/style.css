@@ -3226,6 +3226,59 @@ textarea.form-overlay-widget {
   background: #ffffff !important;
 }
 
+.live-transform-box.mode-shape {
+  background: transparent !important;
+  border: 1.5px dashed var(--accent-primary, #3b82f6);
+  cursor: move;
+}
+
+[data-theme="dark"] .live-transform-box.mode-shape {
+  border-color: #60a5fa;
+  background: transparent !important;
+}
+
+.live-transform-box.mode-shape .transform-editor-body {
+  background: transparent !important;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-theme="dark"] .live-transform-box.mode-shape .transform-editor-body {
+  background: transparent !important;
+}
+
+.transform-shape-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.shape-annotation-wrapper {
+  position: absolute;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  z-index: 15;
+}
+
+.shape-annotation-wrapper:hover {
+  border: 2px dashed var(--accent-primary, #3b82f6) !important;
+  background: rgba(59, 130, 246, 0.08) !important;
+}
+
+.shape-underlying-mask {
+  position: absolute;
+  background: #ffffff;
+  z-index: 10;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .shape-underlying-mask {
+  background: #1e293b;
+}
+
 /* Sleek Floating Top Drag Pill (Border-to-border on top edge, 0px overlap inside box) */
 .transform-top-pill {
   position: absolute;

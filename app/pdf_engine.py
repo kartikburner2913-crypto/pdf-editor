@@ -189,6 +189,8 @@ class PDFEngine:
                 type_name = a.type[1] if isinstance(a.type, (list, tuple)) else str(a.type)
                 info = a.info or {}
                 author_val = info.get("title", "") or info.get("author", "")
+                colors = a.colors or {}
+                border = a.border or {}
                 annots_list.append({
                     "index": idx,
                     "id": info.get("id", f"annot_{page_number}_{idx}"),
@@ -198,7 +200,9 @@ class PDFEngine:
                     "content": info.get("content", ""),
                     "title": info.get("title", ""),
                     "author": author_val,
-                    "name": info.get("name", "")
+                    "name": info.get("name", ""),
+                    "colors": colors,
+                    "border": border
                 })
 
             # 5. Extract images
@@ -995,6 +999,8 @@ class PDFEngine:
                 type_name = a.type[1] if isinstance(a.type, (list, tuple)) else str(a.type)
                 info = a.info or {}
                 author_val = info.get("title", "") or info.get("author", "")
+                colors = a.colors or {}
+                border = a.border or {}
                 annots_list.append({
                     "index": idx,
                     "id": info.get("id", f"annot_{page_num}_{idx}"),
@@ -1004,7 +1010,9 @@ class PDFEngine:
                     "content": info.get("content", ""),
                     "title": info.get("title", ""),
                     "author": author_val,
-                    "name": info.get("name", "")
+                    "name": info.get("name", ""),
+                    "colors": colors,
+                    "border": border
                 })
             return annots_list
         finally:
@@ -1042,6 +1050,75 @@ class PDFEngine:
             if not (0 <= annot_index < len(annots)):
                 raise ValueError(f"Annotation index {annot_index} not found")
             page.delete_annot(annots[annot_index])
+            output = io.BytesIO()
+            doc.save(output, garbage=3, deflate=True)
+            return output.getvalue()
+        finally:
+            doc.close()
+
+    @staticmethod
+    def update_annotation(
+        pdf_bytes: bytes,
+        page_num: int,
+        annot_index: int,
+        bbox: List[float],
+        shape_type: Optional[str] = None,
+        color: Optional[List[float]] = None,
+        fill_color: Optional[List[float]] = None,
+        width: Optional[float] = 2.0
+    ) -> bytes:
+        """Update an existing shape annotation's bounding box, color, fill, width, and type."""
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            if not (1 <= page_num <= len(doc)):
+                raise ValueError("Invalid page number")
+            page = doc[page_num - 1]
+            annots = list(page.annots())
+            if not (0 <= annot_index < len(annots)):
+                raise ValueError(f"Annotation index {annot_index} not found")
+            annot = annots[annot_index]
+
+            if color and any(c > 1.0 for c in color):
+                color = [c / 255.0 for c in color]
+            if fill_color and any(c > 1.0 for c in fill_color):
+                fill_color = [c / 255.0 for c in fill_color]
+
+            rect = fitz.Rect(bbox)
+            current_type_name = annot.type[1] if isinstance(annot.type, (list, tuple)) else str(annot.type)
+            type_mapping = {"rect": "Square", "circle": "Circle", "line": "Line"}
+            desired_type_name = type_mapping.get(shape_type, current_type_name)
+
+            if (shape_type and desired_type_name != current_type_name) or current_type_name == "Line" or shape_type == "line":
+                page.delete_annot(annot)
+                new_type = shape_type or ("rect" if current_type_name == "Square" else ("circle" if current_type_name == "Circle" else "rect"))
+                if new_type == "rect":
+                    new_annot = page.add_rect_annot(rect)
+                    if new_annot:
+                        new_annot.set_colors(stroke=color or [0, 0, 0], fill=fill_color or [])
+                        new_annot.set_border(width=width or 2.0)
+                        new_annot.update()
+                elif new_type == "circle":
+                    new_annot = page.add_circle_annot(rect)
+                    if new_annot:
+                        new_annot.set_colors(stroke=color or [0, 0, 0], fill=fill_color or [])
+                        new_annot.set_border(width=width or 2.0)
+                        new_annot.update()
+                elif new_type == "line":
+                    p1 = fitz.Point(rect.x0, rect.y0)
+                    p2 = fitz.Point(rect.x1, rect.y1)
+                    new_annot = page.add_line_annot(p1, p2)
+                    if new_annot:
+                        new_annot.set_colors(stroke=color or [0, 0, 0])
+                        new_annot.set_border(width=width or 2.0)
+                        new_annot.update()
+            else:
+                annot.set_rect(rect)
+                if color is not None:
+                    annot.set_colors(stroke=color, fill=fill_color if fill_color is not None else [])
+                if width is not None:
+                    annot.set_border(width=width)
+                annot.update()
+
             output = io.BytesIO()
             doc.save(output, garbage=3, deflate=True)
             return output.getvalue()

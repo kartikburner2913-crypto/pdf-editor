@@ -315,7 +315,7 @@ function setupTabs() {
       if (targetId === "tab-split" && typeof renderSplitViews === "function") renderSplitViews();
 
       // Reset specific modes if tab changed
-      if (targetId !== "tab-add" && targetId !== "tab-edit") {
+      if (targetId !== "tab-add" && targetId !== "tab-edit" && targetId !== "tab-shapes") {
         cancelTransformBox();
       } else if (targetId === "tab-add") {
         interactiveOverlay.style.cursor = "text";
@@ -323,6 +323,11 @@ function setupTabs() {
       if (targetId !== "tab-image") {
         if (activeImageBox) { activeImageBox.remove(); activeImageBox = null; }
         if (activeTransformBox && activeTransformBox.classList.contains("mode-image")) {
+          cancelTransformBox();
+        }
+      }
+      if (targetId !== "tab-shapes") {
+        if (activeTransformBox && activeTransformBox.classList.contains("mode-shape")) {
           cancelTransformBox();
         }
       }
@@ -346,8 +351,10 @@ function setupTabs() {
       // Dynamic pointer-events syncing
       const isTextInteractive = targetId === "tab-edit" || targetId === "tab-add";
       const isImgInteractive = targetId === "tab-image" || targetId === "tab-edit";
+      const isShapeInteractive = targetId === "tab-shapes" || targetId === "tab-edit";
       document.querySelectorAll(".text-block-highlight").forEach(el => el.style.pointerEvents = (isTextInteractive || (state.inspectMode && targetId !== "tab-annotate" && targetId !== "tab-redact")) ? "auto" : "none");
       document.querySelectorAll(".canvas-image-overlay").forEach(el => el.style.pointerEvents = (isImgInteractive || (state.inspectMode && targetId !== "tab-annotate" && targetId !== "tab-redact")) ? "auto" : "none");
+      document.querySelectorAll(".shape-annotation-wrapper").forEach(el => el.style.pointerEvents = (isShapeInteractive || (state.inspectMode && targetId !== "tab-annotate" && targetId !== "tab-redact")) ? "auto" : "none");
 
       if (targetId !== "tab-add" && targetId !== "tab-forms" && targetId !== "tab-annotate" && targetId !== "tab-shapes") {
         interactiveOverlay.style.cursor = "default";
@@ -1015,8 +1022,21 @@ function renderAnnotationOverlays(pageNumber) {
       if (delBtn) delBtn.style.display = "none";
     });
 
+    const isShapeAnnot = ["Square", "Rect", "Circle", "Line", "Polygon", "PolyLine"].includes(annot.type);
     if (annot.type === "Text") {
       wrapper.innerHTML = `<div class="sticky-note-icon" style="cursor: grab; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; background: #f59e0b; color: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></div>`;
+    } else if (isShapeAnnot) {
+      wrapper.classList.add("shape-annotation-wrapper");
+      wrapper.dataset.annotIndex = String(annot.index);
+      wrapper.style.cursor = "pointer";
+      wrapper.title = `${annot.type} Shape: Click to edit shape`;
+      wrapper.addEventListener("click", (e) => {
+        if (state.activeTab === "tab-annotate" || state.activeTab === "tab-redact") return;
+        e.stopPropagation();
+        if (typeof selectShapeForEdit === "function") {
+          selectShapeForEdit(annot, wrapper);
+        }
+      });
     } else {
       wrapper.style.cursor = "grab";
       wrapper.addEventListener("mousedown", () => wrapper.style.cursor = "grabbing");
@@ -1978,8 +1998,9 @@ function setupCanvasDrawing() {
       const isInsideContextMenu = e.target.closest(".custom-context-menu");
       const isTextBlock = e.target.closest(".text-block-highlight");
       const isImageOverlay = e.target.closest(".canvas-image-overlay");
+      const isShapeOverlay = e.target.closest(".shape-annotation-wrapper");
 
-      if (!isInsideTransform && !isInsideSidebar && !isInsideModal && !isInsideToast && !isInsideContextMenu && !isTextBlock && !isImageOverlay) {
+      if (!isInsideTransform && !isInsideSidebar && !isInsideModal && !isInsideToast && !isInsideContextMenu && !isTextBlock && !isImageOverlay && !isShapeOverlay) {
         cancelTransformBox(false);
       }
     }
@@ -2000,6 +2021,7 @@ function setupCanvasDrawing() {
     if (
       e.target.closest(".text-block-highlight") ||
       e.target.closest(".canvas-image-overlay") ||
+      e.target.closest(".shape-annotation-wrapper") ||
       e.target.closest(".form-overlay-widget") ||
       e.target.closest(".live-transform-box") ||
       e.target.closest(".wysiwyg-text-box") ||
@@ -2120,6 +2142,45 @@ function setupCanvasDrawing() {
       document.getElementById("shapeStartY").value = minY;
       document.getElementById("shapeEndX").value = maxX;
       document.getElementById("shapeEndY").value = maxY;
+
+      if (state.shapesSubMode === "shapes") {
+        if (activeBox) {
+          activeBox.remove();
+          activeBox = null;
+        }
+        const shapeType = document.getElementById("shapeType")?.value || "rect";
+        const strokeColor = document.getElementById("shapeColor")?.value || "#2563eb";
+        const fillColorVal = document.getElementById("shapeFill")?.value || "#ffffff";
+        const fillColor = fillColorVal === "#ffffff" ? null : fillColorVal;
+        const strokeWidth = parseFloat(document.getElementById("shapeWidth")?.value) || 2;
+
+        let lPx = minX / scaleX;
+        let tPx = minY / scaleY;
+        let wPx = w / scaleX;
+        let hPx = h / scaleY;
+
+        if (wPx < 15 || hPx < 15) {
+          wPx = 180;
+          hPx = 120;
+          lPx = Math.max(10, Math.min((e.clientX - rect.left) - 90, rect.width - wPx - 10));
+          tPx = Math.max(10, Math.min((e.clientY - rect.top) - 60, rect.height - hPx - 10));
+        }
+
+        if (typeof initLiveShapeTransformBox === "function") {
+          initLiveShapeTransformBox({
+            mode: "insert",
+            shapeType: shapeType,
+            strokeColor: strokeColor,
+            fillColor: fillColor,
+            strokeWidth: strokeWidth,
+            leftPx: lPx,
+            topPx: tPx,
+            widthPx: wPx,
+            heightPx: hPx
+          });
+          return;
+        }
+      }
     } else if (state.activeTab === "tab-forms") {
       document.getElementById("formX0").value = minX;
       document.getElementById("formY0").value = minY;
@@ -2262,6 +2323,11 @@ function cancelTransformBox(keepMasks = false) {
       el.classList.remove("is-dragging");
     });
     interactiveOverlay.querySelectorAll(".text-block-highlight").forEach(el => {
+      el.style.display = "";
+      el.classList.remove("selected");
+      el.classList.remove("is-dragging");
+    });
+    interactiveOverlay.querySelectorAll(".shape-annotation-wrapper").forEach(el => {
       el.style.display = "";
       el.classList.remove("selected");
       el.classList.remove("is-dragging");
@@ -3541,6 +3607,604 @@ function initLiveImageTransformBox(options = {}) {
   };
 }
 
+// ==========================================================================
+// Universal Live Shape Transform Engine (Add & Edit Shapes)
+// ==========================================================================
+
+function rgbToHex(color) {
+  if (!color) return "#2563eb";
+  if (Array.isArray(color)) {
+    if (color.length === 0) return "#ffffff";
+    const r = Math.round(color[0] <= 1.0 ? color[0] * 255 : color[0]);
+    const g = Math.round(color[1] <= 1.0 ? color[1] * 255 : color[1]);
+    const b = Math.round(color[2] <= 1.0 ? color[2] * 255 : color[2]);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+  if (typeof color === "string" && color.startsWith("#")) return color;
+  return "#2563eb";
+}
+
+function initLiveShapeTransformBox(options = {}) {
+  cancelTransformBox();
+
+  const mode = options.mode || "insert"; // "insert" | "existing"
+  const overlay = document.getElementById("interactiveOverlay");
+  const overlayRect = overlay.getBoundingClientRect();
+  const scaleX = state.pageWidthPt / overlayRect.width;
+  const scaleY = state.pageHeightPt / overlayRect.height;
+
+  let shapeType = options.shapeType || "rect"; // "rect" | "circle" | "line"
+  let strokeColor = options.strokeColor || "#2563eb";
+  let fillColor = options.fillColor !== undefined ? options.fillColor : null;
+  let strokeWidth = options.strokeWidth !== undefined ? parseFloat(options.strokeWidth) : 2.0;
+
+  let widthPx = options.widthPx || 180;
+  let heightPx = options.heightPx || 120;
+  let leftPx = options.leftPx !== undefined ? options.leftPx : Math.max(20, (overlayRect.width - widthPx) / 2);
+  let topPx = options.topPx !== undefined ? options.topPx : Math.max(30, (overlayRect.height - heightPx) / 3);
+
+  // If editing an existing shape, conceal original on background
+  if (mode === "existing" && options.annot) {
+    interactiveOverlay.querySelectorAll(".shape-annotation-wrapper").forEach(el => {
+      if (options.divElement === el || el.dataset.annotIndex === String(options.annot.index)) {
+        el.style.display = "none";
+      }
+    });
+
+    const underlyingMask = document.createElement("div");
+    underlyingMask.className = "element-underlying-mask shape-underlying-mask";
+    underlyingMask.style.left = `${Math.max(0, Math.min(leftPx, overlayRect.width - widthPx))}px`;
+    underlyingMask.style.top = `${Math.max(0, Math.min(topPx, overlayRect.height - heightPx))}px`;
+    underlyingMask.style.width = `${widthPx}px`;
+    underlyingMask.style.height = `${heightPx}px`;
+    interactiveOverlay.appendChild(underlyingMask);
+  }
+
+  const box = document.createElement("div");
+  box.className = `live-transform-box mode-shape mode-shape-${shapeType}`;
+  box.style.left = `${Math.max(0, Math.min(leftPx, overlayRect.width - widthPx))}px`;
+  box.style.top = `${Math.max(0, Math.min(topPx, overlayRect.height - heightPx))}px`;
+  box.style.width = `${widthPx}px`;
+  box.style.height = `${heightPx}px`;
+
+  box.addEventListener("mousedown", (e) => e.stopPropagation());
+  box.addEventListener("click", (e) => e.stopPropagation());
+
+  // 1. Sleek Floating Top Pill
+  const pill = document.createElement("div");
+  pill.className = "transform-top-pill";
+  function updatePillTitle() {
+    const typeLabel = shapeType === "rect" ? "Rectangle" : (shapeType === "circle" ? "Circle" : "Line");
+    const titleSpan = pill.querySelector(".pill-title span");
+    if (titleSpan) titleSpan.textContent = `${mode === "existing" ? "Edit Shape" : "New Shape"} (${typeLabel})`;
+  }
+  pill.innerHTML = `
+    <span class="pill-title">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      <span>${mode === "existing" ? "Edit Shape" : "New Shape"}</span>
+    </span>
+    <span class="pill-badge live-shape-coord-badge"></span>
+    <span class="pill-close" title="Cancel (Esc)">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </span>
+  `;
+  box.appendChild(pill);
+  pill.querySelector(".pill-close").addEventListener("click", () => cancelTransformBox(false));
+
+  // 2. Floating Micro-Toolbar
+  const toolbar = document.createElement("div");
+  toolbar.className = "transform-floating-toolbar";
+
+  function updateShapeToolbarPosition() {
+    if (!toolbar || !box) return;
+    const viewportEl = document.getElementById("canvasViewport");
+    const viewportRect = viewportEl ? viewportEl.getBoundingClientRect() : {
+      left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight, width: window.innerWidth, height: window.innerHeight
+    };
+    const boxRect = box.getBoundingClientRect();
+    const tbRect = toolbar.getBoundingClientRect();
+    const tbWidth = tbRect.width > 0 ? tbRect.width : (toolbar.offsetWidth || 440);
+    const tbHeight = tbRect.height > 0 ? tbRect.height : (toolbar.offsetHeight || 32);
+
+    const spaceAbove = boxRect.top - Math.max(viewportRect.top, 0) - 8;
+    const spaceBelow = Math.min(viewportRect.bottom, window.innerHeight) - boxRect.bottom - 8;
+
+    if (spaceAbove < (tbHeight + 35) && spaceBelow >= (tbHeight + 15)) {
+      toolbar.classList.add("toolbar-below");
+    } else if (spaceBelow < (tbHeight + 15) && spaceAbove >= (tbHeight + 35)) {
+      toolbar.classList.remove("toolbar-below");
+    } else if (spaceAbove < (tbHeight + 35)) {
+      toolbar.classList.add("toolbar-below");
+    } else {
+      toolbar.classList.remove("toolbar-below");
+    }
+
+    const padding = 8;
+    const availWidth = Math.max(260, viewportRect.width - padding * 2);
+    const effectiveTbWidth = Math.min(tbWidth, availWidth);
+    const screenMinX = viewportRect.left + padding;
+    const screenMaxX = viewportRect.right - padding - effectiveTbWidth;
+    const idealCenter = boxRect.left + (boxRect.width / 2);
+    const idealScreenLeft = idealCenter - (effectiveTbWidth / 2);
+    let clampedScreenLeft = (screenMaxX <= screenMinX) ? screenMinX : Math.max(screenMinX, Math.min(idealScreenLeft, screenMaxX));
+
+    const relLeft = clampedScreenLeft - boxRect.left;
+    toolbar.style.left = `${Math.round(relLeft)}px`;
+    toolbar.style.transform = "none";
+    toolbar.style.right = "auto";
+    toolbar.style.maxWidth = `${Math.floor(availWidth)}px`;
+
+    if (pill) {
+      const pillRect = pill.getBoundingClientRect();
+      const pillWidth = pillRect.width > 0 ? pillRect.width : (pill.offsetWidth || 220);
+      const idealPillScreenLeft = boxRect.left;
+      const pillMaxX = Math.min(viewportRect.right - padding, window.innerWidth - padding) - pillWidth;
+      const pillMinX = Math.max(viewportRect.left + padding, padding);
+      let clampedPillScreenLeft = idealPillScreenLeft;
+      if (pillMaxX >= pillMinX) {
+        clampedPillScreenLeft = Math.max(pillMinX, Math.min(idealPillScreenLeft, pillMaxX));
+      }
+      const relPillLeft = clampedPillScreenLeft - boxRect.left;
+      pill.style.left = `${Math.round(relPillLeft)}px`;
+      pill.style.maxWidth = `${Math.floor(availWidth)}px`;
+    }
+  }
+
+  function updateShapeCoordBadge() {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+    const ptX = Math.round(curL * scaleX);
+    const ptY = Math.round(curT * scaleY);
+    const ptW = Math.round(curW * scaleX);
+    const ptH = Math.round(curH * scaleY);
+    const badge = pill.querySelector(".live-shape-coord-badge");
+    if (badge) {
+      badge.textContent = `${ptW}×${ptH}pt @ (${ptX},${ptY})`;
+    }
+    updatePillTitle();
+    updateShapeToolbarPosition();
+
+    // Sync to sidebar inputs
+    const inX1 = document.getElementById("shapeStartX");
+    const inY1 = document.getElementById("shapeStartY");
+    const inX2 = document.getElementById("shapeEndX");
+    const inY2 = document.getElementById("shapeEndY");
+    if (inX1) inX1.value = ptX;
+    if (inY1) inY1.value = ptY;
+    if (inX2) inX2.value = ptX + ptW;
+    if (inY2) inY2.value = ptY + ptH;
+
+    const inType = document.getElementById("shapeType");
+    const inStroke = document.getElementById("shapeColor");
+    const inFill = document.getElementById("shapeFill");
+    const inWidth = document.getElementById("shapeWidth");
+    if (inType && inType.value !== shapeType) inType.value = shapeType;
+    if (inStroke && inStroke.value !== strokeColor) inStroke.value = strokeColor;
+    if (inFill) inFill.value = fillColor || "#ffffff";
+    if (inWidth && parseFloat(inWidth.value) !== strokeWidth) inWidth.value = strokeWidth;
+  }
+
+  // 3. Editor Body & Live SVG
+  const body = document.createElement("div");
+  body.className = "transform-editor-body";
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "transform-shape-svg");
+  body.appendChild(svg);
+  box.appendChild(body);
+
+  function renderShapeSvg() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const W = box.offsetWidth;
+    const H = box.offsetHeight;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+    const effStroke = Math.max(1, strokeWidth * (1.0 / scaleY));
+    const pad = effStroke / 2;
+
+    if (shapeType === "rect") {
+      const rectEl = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rectEl.setAttribute("x", pad);
+      rectEl.setAttribute("y", pad);
+      rectEl.setAttribute("width", Math.max(1, W - effStroke));
+      rectEl.setAttribute("height", Math.max(1, H - effStroke));
+      rectEl.setAttribute("stroke", strokeColor);
+      rectEl.setAttribute("stroke-width", effStroke);
+      rectEl.setAttribute("fill", fillColor || "none");
+      rectEl.setAttribute("rx", "1");
+      svg.appendChild(rectEl);
+    } else if (shapeType === "circle") {
+      const ellipseEl = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+      ellipseEl.setAttribute("cx", W / 2);
+      ellipseEl.setAttribute("cy", H / 2);
+      ellipseEl.setAttribute("rx", Math.max(1, (W - effStroke) / 2));
+      ellipseEl.setAttribute("ry", Math.max(1, (H - effStroke) / 2));
+      ellipseEl.setAttribute("stroke", strokeColor);
+      ellipseEl.setAttribute("stroke-width", effStroke);
+      ellipseEl.setAttribute("fill", fillColor || "none");
+      svg.appendChild(ellipseEl);
+    } else if (shapeType === "line") {
+      const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      lineEl.setAttribute("x1", pad);
+      lineEl.setAttribute("y1", pad);
+      lineEl.setAttribute("x2", Math.max(1, W - pad));
+      lineEl.setAttribute("y2", Math.max(1, H - pad));
+      lineEl.setAttribute("stroke", strokeColor);
+      lineEl.setAttribute("stroke-width", effStroke);
+      lineEl.setAttribute("stroke-linecap", "round");
+      svg.appendChild(lineEl);
+    }
+  }
+
+  // 4. Toolbar Controls & Markup
+  toolbar.innerHTML = `
+    <div class="tb-group tb-shape-controls">
+      <select class="tb-shape-type-select" title="Shape Type" style="height: 24px; padding: 1px 4px; font-size: 11px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-main); cursor: pointer;">
+        <option value="rect" ${shapeType === "rect" ? "selected" : ""}>Rectangle</option>
+        <option value="circle" ${shapeType === "circle" ? "selected" : ""}>Circle</option>
+        <option value="line" ${shapeType === "line" ? "selected" : ""}>Line</option>
+      </select>
+      <div class="tb-divider"></div>
+      <label style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--text-dim); cursor: pointer;" title="Stroke / Border Color">
+        <span>Stroke</span>
+        <input type="color" class="tb-stroke-color color-picker" value="${strokeColor}" style="width: 20px; height: 20px; border: 1px solid var(--border-color); border-radius: 3px; cursor: pointer; padding: 0;" />
+      </label>
+      <label style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--text-dim); cursor: pointer;" title="Fill Color">
+        <span>Fill</span>
+        <input type="color" class="tb-fill-color color-picker" value="${fillColor || '#ffffff'}" style="width: 20px; height: 20px; border: 1px solid var(--border-color); border-radius: 3px; cursor: pointer; padding: 0; opacity: ${fillColor ? '1' : '0.5'};" />
+      </label>
+      <button type="button" class="tool-btn tb-no-fill-btn ${!fillColor ? 'active' : ''}" title="Toggle Transparent Fill">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><circle cx="12" cy="12" r="10"/></svg>
+        <span>No Fill</span>
+      </button>
+      <div class="tb-divider"></div>
+      <button type="button" class="tool-btn tb-width-dec" title="Decrease Width">-</button>
+      <input type="number" class="tb-width-input" value="${Math.round(strokeWidth)}" min="1" max="50" style="width: 28px; height: 20px; text-align: center; font-size: 11px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--bg-primary); color: var(--text-main);" />
+      <button type="button" class="tool-btn tb-width-inc" title="Increase Width">+</button>
+    </div>
+    <div class="tb-divider"></div>
+    <div class="tb-actions-group">
+      <button type="button" class="tool-btn btn-save" title="Apply Shape to PDF (Ctrl+Enter)" style="background: var(--accent-primary, #3b82f6); color: #ffffff; font-weight: 600;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>Apply</span>
+      </button>
+      <button type="button" class="tool-btn btn-delete" title="Delete Shape" style="color: #ef4444;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      </button>
+      <button type="button" class="tool-btn tb-cancel-btn" title="Cancel (Esc)">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  `;
+
+  box.appendChild(toolbar);
+
+  const selType = toolbar.querySelector(".tb-shape-type-select");
+  const inStrokeInput = toolbar.querySelector(".tb-stroke-color");
+  const inFillInput = toolbar.querySelector(".tb-fill-color");
+  const btnNoFill = toolbar.querySelector(".tb-no-fill-btn");
+  const btnWidthDec = toolbar.querySelector(".tb-width-dec");
+  const inWidthInput = toolbar.querySelector(".tb-width-input");
+  const btnWidthInc = toolbar.querySelector(".tb-width-inc");
+  const btnSave = toolbar.querySelector(".btn-save");
+  const btnDelete = toolbar.querySelector(".btn-delete");
+  const btnCancel = toolbar.querySelector(".tb-cancel-btn");
+
+  selType.addEventListener("change", (e) => {
+    shapeType = e.target.value;
+    box.className = `live-transform-box mode-shape mode-shape-${shapeType}`;
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  });
+
+  inStrokeInput.addEventListener("input", (e) => {
+    strokeColor = e.target.value;
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  });
+
+  inFillInput.addEventListener("input", (e) => {
+    fillColor = e.target.value;
+    btnNoFill.classList.remove("active");
+    inFillInput.style.opacity = "1";
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  });
+
+  btnNoFill.addEventListener("click", () => {
+    if (fillColor) {
+      fillColor = null;
+      btnNoFill.classList.add("active");
+      inFillInput.style.opacity = "0.5";
+    } else {
+      fillColor = inFillInput.value || "#ffffff";
+      btnNoFill.classList.remove("active");
+      inFillInput.style.opacity = "1";
+    }
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  });
+
+  btnWidthDec.addEventListener("click", () => {
+    strokeWidth = Math.max(1, strokeWidth - 1);
+    inWidthInput.value = Math.round(strokeWidth);
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  });
+
+  btnWidthInc.addEventListener("click", () => {
+    strokeWidth = Math.min(50, strokeWidth + 1);
+    inWidthInput.value = Math.round(strokeWidth);
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  });
+
+  inWidthInput.addEventListener("input", (e) => {
+    strokeWidth = Math.max(1, Math.min(50, parseFloat(e.target.value) || 2));
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  });
+
+  btnCancel.addEventListener("click", () => cancelTransformBox(false));
+
+  // 5. Commit Action
+  async function commitShapeAction() {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+
+    const ptX0 = Math.round(curL * scaleX);
+    const ptY0 = Math.round(curT * scaleY);
+    const ptX1 = Math.round(ptX0 + curW * scaleX);
+    const ptY1 = Math.round(ptY0 + curH * scaleY);
+    const bbox = [ptX0, ptY0, ptX1, ptY1];
+    const points = [[ptX0, ptY0], [ptX1, ptY1]];
+
+    const color = hexToRgb(strokeColor);
+    const fill = fillColor ? hexToRgb(fillColor) : null;
+    const width = strokeWidth;
+
+    cancelTransformBox();
+    setLoading(true, mode === "existing" ? "Updating shape in PDF..." : "Adding shape to PDF...");
+
+    try {
+      let mutationData = null;
+      if (mode === "insert") {
+        const payload = {
+          shapes: [{
+            page: state.currentPage,
+            type: shapeType,
+            bbox: bbox,
+            points: points,
+            color: color,
+            fill_color: fill,
+            width: width
+          }]
+        };
+        const res = await fetch(`/api/document/${state.docId}/add-shape`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error("Failed to add shape");
+        mutationData = await res.json();
+        showToast("Shape added successfully!", "success");
+      } else {
+        const payload = {
+          page: state.currentPage,
+          index: options.annot.index,
+          bbox: bbox,
+          type: shapeType,
+          color: color,
+          fill_color: fill,
+          width: width
+        };
+        const res = await fetch(`/api/document/${state.docId}/annotations/update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error("Failed to update shape");
+        mutationData = await res.json();
+        showToast("Shape updated successfully!", "success");
+      }
+
+      await applyMutationResponse(mutationData, state.currentPage);
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  btnSave.addEventListener("click", commitShapeAction);
+  box._commit = commitShapeAction;
+
+  btnDelete.addEventListener("click", () => {
+    if (mode === "insert") {
+      cancelTransformBox(false);
+      return;
+    }
+    showConfirmModal("Delete Shape", "Permanently remove this shape from the document?", async () => {
+      cancelTransformBox();
+      setLoading(true, "Deleting shape...");
+      try {
+        const res = await fetch(`/api/document/${state.docId}/annotations/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page: state.currentPage, index: options.annot.index })
+        });
+        if (!res.ok) throw new Error("Failed to delete shape");
+        const delData = await res.json();
+        showToast("Shape removed!", "info");
+        await applyMutationResponse(delData, state.currentPage);
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    });
+  });
+
+  // Layer ordering integration
+  box._triggerLayer = (action) => {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const ptX0 = Math.round(curL * scaleX);
+    const ptY0 = Math.round(curT * scaleY);
+    const ptX1 = Math.round(ptX0 + box.offsetWidth * scaleX);
+    const ptY1 = Math.round(ptY0 + box.offsetHeight * scaleY);
+    executeLayerOrder({
+      page: state.currentPage,
+      elementType: "shape",
+      action: action,
+      elementId: options.annot ? options.annot.id : `shape_${state.currentPage}`,
+      bbox: [ptX0, ptY0, ptX1, ptY1],
+      color: hexToRgb(strokeColor)
+    });
+  };
+
+  box._syncFromSidebar = () => {
+    const inType = document.getElementById("shapeType")?.value;
+    const inStroke = document.getElementById("shapeColor")?.value;
+    const inFill = document.getElementById("shapeFill")?.value;
+    const inWidth = parseFloat(document.getElementById("shapeWidth")?.value);
+    if (inType) {
+      shapeType = inType;
+      if (selType) selType.value = shapeType;
+      box.className = `live-transform-box mode-shape mode-shape-${shapeType}`;
+    }
+    if (inStroke) {
+      strokeColor = inStroke;
+      if (inStrokeInput) inStrokeInput.value = strokeColor;
+    }
+    if (inFill) {
+      fillColor = inFill === "#ffffff" ? null : inFill;
+      if (inFillInput) {
+        inFillInput.value = inFill;
+        inFillInput.style.opacity = fillColor ? "1" : "0.5";
+      }
+      if (btnNoFill) btnNoFill.classList.toggle("active", !fillColor);
+    }
+    if (!isNaN(inWidth)) {
+      strokeWidth = inWidth;
+      if (inWidthInput) inWidthInput.value = Math.round(strokeWidth);
+    }
+    renderShapeSvg();
+    updatePillTitle();
+  };
+
+  box._syncCoordsFromSidebar = () => {
+    const x1 = parseFloat(document.getElementById("shapeStartX")?.value);
+    const y1 = parseFloat(document.getElementById("shapeStartY")?.value);
+    const x2 = parseFloat(document.getElementById("shapeEndX")?.value);
+    const y2 = parseFloat(document.getElementById("shapeEndY")?.value);
+    if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+      const curL = Math.min(x1, x2) / scaleX;
+      const curT = Math.min(y1, y2) / scaleY;
+      const curW = Math.abs(x2 - x1) / scaleX;
+      const curH = Math.abs(y2 - y1) / scaleY;
+      box.style.left = `${Math.max(0, Math.min(curL, overlayRect.width - curW))}px`;
+      box.style.top = `${Math.max(0, Math.min(curT, overlayRect.height - curH))}px`;
+      box.style.width = `${Math.max(30, curW)}px`;
+      box.style.height = `${Math.max(20, curH)}px`;
+      renderShapeSvg();
+      updateShapeCoordBadge();
+    }
+  };
+
+  // 6. Drag & Resize Attachments
+  function onBoxMoved(curL, curT, curW, curH, moved) {
+    updateShapeCoordBadge();
+  }
+
+  function onBoxResized(curL, curT, curW, curH, dir) {
+    renderShapeSvg();
+    updateShapeCoordBadge();
+  }
+
+  makeDraggable(box, pill, onBoxMoved, onBoxMoved);
+  makeDraggable(box, body, onBoxMoved, onBoxMoved);
+  makeResizable(box, onBoxResized, onBoxResized);
+
+  interactiveOverlay.appendChild(box);
+  activeTransformBox = box;
+  renderShapeSvg();
+  updateShapeCoordBadge();
+  updateShapeToolbarPosition();
+  requestAnimationFrame(() => updateShapeToolbarPosition());
+  setTimeout(() => updateShapeToolbarPosition(), 50);
+  setTimeout(() => updateShapeToolbarPosition(), 150);
+
+  const onViewportScrollOrResize = () => {
+    updateShapeToolbarPosition();
+  };
+  const canvasViewportEl = document.getElementById("canvasViewport");
+  if (canvasViewportEl) canvasViewportEl.addEventListener("scroll", onViewportScrollOrResize, { passive: true });
+  window.addEventListener("resize", onViewportScrollOrResize, { passive: true });
+
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") {
+      cancelTransformBox(false);
+      window.removeEventListener("keydown", onKeyDown);
+    } else if (e.key === "Enter" && e.ctrlKey) {
+      commitShapeAction();
+      window.removeEventListener("keydown", onKeyDown);
+    }
+  };
+  window.addEventListener("keydown", onKeyDown);
+
+  box._cleanup = () => {
+    if (canvasViewportEl) canvasViewportEl.removeEventListener("scroll", onViewportScrollOrResize);
+    window.removeEventListener("resize", onViewportScrollOrResize);
+    window.removeEventListener("keydown", onKeyDown);
+  };
+}
+
+function selectShapeForEdit(annot, wrapper) {
+  if (state.activeTab !== "tab-shapes") {
+    const shapesTabBtn = document.querySelector('[data-tab="tab-shapes"]');
+    if (shapesTabBtn) {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+      shapesTabBtn.classList.add("active");
+      const targetPane = document.getElementById("tab-shapes");
+      if (targetPane) targetPane.classList.add("active");
+      state.activeTab = "tab-shapes";
+    }
+  }
+  if (typeof window.setShapesSubMode === "function") {
+    window.setShapesSubMode("shapes");
+  }
+
+  const screenRect = pageToScreenRect(annot.rect);
+  const typeMap = { "Square": "rect", "Rect": "rect", "Circle": "circle", "Line": "line", "Polygon": "rect", "PolyLine": "line" };
+  const sType = typeMap[annot.type] || "rect";
+  const sStroke = annot.colors?.stroke ? rgbToHex(annot.colors.stroke) : "#2563eb";
+  const sFill = (annot.colors?.fill && annot.colors.fill.length) ? rgbToHex(annot.colors.fill) : null;
+  const sWidth = annot.border?.width || 2;
+
+  initLiveShapeTransformBox({
+    mode: "existing",
+    annot: annot,
+    divElement: wrapper,
+    shapeType: sType,
+    strokeColor: sStroke,
+    fillColor: sFill,
+    strokeWidth: sWidth,
+    leftPx: screenRect.left,
+    topPx: screenRect.top,
+    widthPx: screenRect.width,
+    heightPx: screenRect.height
+  });
+}
+
+window.initLiveShapeTransformBox = initLiveShapeTransformBox;
+window.selectShapeForEdit = selectShapeForEdit;
+
 function handleImageFileForPlacement(file, targetLeftPx, targetTopPx) {
   if (!file) return;
   const reader = new FileReader();
@@ -3979,6 +4643,10 @@ function setupToolActions() {
   const btnApplyShape = document.getElementById("btnApplyShape");
   if (btnApplyShape) {
     btnApplyShape.addEventListener("click", async () => {
+      if (activeTransformBox && activeTransformBox.classList.contains("mode-shape") && typeof activeTransformBox._commit === "function") {
+        await activeTransformBox._commit();
+        return;
+      }
       const type = document.getElementById("shapeType").value;
       const color = hexToRgb(document.getElementById("shapeColor").value);
       const fillInput = document.getElementById("shapeFill").value;
@@ -8551,6 +9219,32 @@ function setupMeasurementTools() {
         el.addEventListener("focus", () => {
           if (state.shapesSubMode !== "shapes") window.setShapesSubMode("shapes");
         });
+      }
+    });
+
+    ["shapeType", "shapeColor", "shapeFill", "shapeWidth"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        const syncActive = () => {
+          if (activeTransformBox && activeTransformBox.classList.contains("mode-shape") && typeof activeTransformBox._syncFromSidebar === "function") {
+            activeTransformBox._syncFromSidebar();
+          }
+        };
+        el.addEventListener("input", syncActive);
+        el.addEventListener("change", syncActive);
+      }
+    });
+
+    ["shapeStartX", "shapeStartY", "shapeEndX", "shapeEndY"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        const syncCoords = () => {
+          if (activeTransformBox && activeTransformBox.classList.contains("mode-shape") && typeof activeTransformBox._syncCoordsFromSidebar === "function") {
+            activeTransformBox._syncCoordsFromSidebar();
+          }
+        };
+        el.addEventListener("input", syncCoords);
+        el.addEventListener("change", syncCoords);
       }
     });
   }

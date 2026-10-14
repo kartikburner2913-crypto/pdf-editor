@@ -122,3 +122,88 @@ def test_add_shape_api_lifecycle(client):
     drawings = page1.get_drawings()
     assert len(drawings) >= 2, "Expected at least 2 shape drawings on page"
     out_doc.close()
+
+
+def test_shape_editing_and_update_api(client):
+    pdf_bytes = create_sample_pdf()
+    upload_res = client.post(
+        "/api/upload",
+        files={"file": ("sample.pdf", pdf_bytes, "application/pdf")}
+    )
+    assert upload_res.status_code == 200
+    doc_id = upload_res.json()["doc_id"]
+
+    # 1. Add initial Rectangle Shape
+    shape_payload = {
+        "shapes": [{
+            "page": 1,
+            "type": "rect",
+            "bbox": [100, 100, 250, 200],
+            "points": [[100, 100], [250, 200]],
+            "color": [0.15, 0.39, 0.92],
+            "fill_color": [0.9, 0.95, 1.0],
+            "width": 2.0
+        }]
+    }
+    add_res = client.post(f"/api/document/{doc_id}/add-shape", json=shape_payload)
+    assert add_res.status_code == 200
+
+    # 2. Query annotations
+    annots_res = client.get(f"/api/document/{doc_id}/page/1/annotations")
+    assert annots_res.status_code == 200
+    annots = annots_res.json()["annotations"]
+    assert len(annots) >= 1
+    target_annot = annots[0]
+    assert "colors" in target_annot
+    assert "border" in target_annot
+
+    # 3. Update Shape via annotations/update (Move, resize, change to circle, and change color/width)
+    update_payload = {
+        "page": 1,
+        "index": target_annot["index"],
+        "bbox": [150, 150, 350, 300],
+        "type": "circle",
+        "color": [0.1, 0.8, 0.2],
+        "fill_color": [1.0, 1.0, 0.0],
+        "width": 4.0
+    }
+    update_res = client.post(f"/api/document/{doc_id}/annotations/update", json=update_payload)
+    assert update_res.status_code == 200
+    update_data = update_res.json()
+    assert update_data.get("status") == "success"
+
+    # 4. Verify updated annotations
+    annots_res2 = client.get(f"/api/document/{doc_id}/page/1/annotations")
+    assert annots_res2.status_code == 200
+    annots2 = annots_res2.json()["annotations"]
+    assert len(annots2) >= 1
+    updated_annot = annots2[0]
+    assert updated_annot["type"] == "Circle"
+    assert updated_annot["border"].get("width") == 4.0
+
+    # 5. Delete shape via annotations/delete
+    del_res = client.post(f"/api/document/{doc_id}/annotations/delete", json={"page": 1, "index": 0})
+    assert del_res.status_code == 200
+    annots_res3 = client.get(f"/api/document/{doc_id}/page/1/annotations")
+    assert len(annots_res3.json()["annotations"]) == 0
+
+
+def test_shape_transform_box_js_structure():
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "app.js")
+    with open(js_path, "r", encoding="utf-8") as f:
+        js = f.read()
+
+    assert "function initLiveShapeTransformBox(" in js
+    assert "function selectShapeForEdit(" in js
+    assert "window.initLiveShapeTransformBox = initLiveShapeTransformBox;" in js
+    assert "window.selectShapeForEdit = selectShapeForEdit;" in js
+    assert "shape-annotation-wrapper" in js
+    assert "transform-shape-svg" in js
+
+    # Strict emoji check on shape transform box code
+    shape_func_code = js[js.find("function initLiveShapeTransformBox"):js.find("window.initLiveShapeTransformBox")]
+    emoji_pattern = re.compile(
+        r'[\U0001F300-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U00002600-\U000026FF\U00002700-\U000027BF]'
+    )
+    matches = emoji_pattern.findall(shape_func_code)
+    assert len(matches) == 0, f"Found emojis in initLiveShapeTransformBox: {matches}"
