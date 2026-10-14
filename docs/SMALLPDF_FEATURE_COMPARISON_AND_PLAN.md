@@ -166,10 +166,15 @@
 **Gap:** SmallPDF is fully responsive and mobile-first.
 **Upgrade:** Improve responsive breakpoints, touch targets, and mobile toolbar layout.
 
-### B9. Landing / Tool Selection Page
-**Current State:** Single upload page leads directly to editor.
-**Gap:** SmallPDF has a polished tool selector landing page with categorized tool cards.
-**Upgrade:** Consider adding a tool-selector landing page for dedicated tools (compress, merge, split, convert).
+### B9. Landing / Tool Selection Page [COMPLETE]
+**State:** PASS (October 2026)
+**Features:** 
+- Complete categorized Tool Selection directory on landing page (`#toolDirectorySection`) matching SmallPDF parity.
+- 5 intuitive category filter tabs (`All Tools [23]`, `Organize & Pages [5]`, `Edit & Annotate [7]`, `Convert & Export [4]`, `Security & Redact [4]`, `Optimize & Inspect [3]`).
+- Real-time client-side search box (`#toolSearchInput`) with keyboard shortcut (`/`), clear button, live count indicator (`#toolsCountVisible`), and zero-results empty state (`#toolsEmptySearchState`) with one-click filter reset.
+- 23 high-precision interactive tool cards with pure SVG vector icons (strictly NO emojis), color-coded icon badges, category tags, and descriptive microcopy.
+- Intelligent dual launch routing: standalone modals launch directly (`Merge PDFs`, `Split PDF`, `Unlock / Decrypt`, `Document Diff Compare`), while document-centric tools prompt file selection and automatically open their corresponding sidebar editor tab once loaded.
+- Seamless two-way workspace navigation via top navbar (`#btnNavToolsDirectory` / `#navBrandLogo`), active document return banner (`#activeDocReturnBanner`), and Command Palette (`Ctrl+K`).
 
 ---
 

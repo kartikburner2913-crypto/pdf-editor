@@ -45,7 +45,9 @@ const state = {
   cropCoordsPt: null,
   cropRatio: "free",
   pageBundleCache: new Map(),
-  docVersion: 1
+  docVersion: 1,
+  pendingTargetTab: null,
+  pendingSubAction: null
 };
 
 let activeTransformBox = null;
@@ -57,6 +59,15 @@ const uploadSection = document.getElementById("uploadSection");
 const workspaceSection = document.getElementById("workspaceSection");
 const topNavActions = document.getElementById("topNavActions");
 const activeFilename = document.getElementById("activeFilename");
+const activeDocReturnBanner = document.getElementById("activeDocReturnBanner");
+const activeDocBannerName = document.getElementById("activeDocBannerName");
+const btnNavToolsDirectory = document.getElementById("btnNavToolsDirectory");
+const navBrandLogo = document.getElementById("navBrandLogo");
+const toolSearchInput = document.getElementById("toolSearchInput");
+const btnClearToolSearch = document.getElementById("btnClearToolSearch");
+const toolsCountVisible = document.getElementById("toolsCountVisible");
+const toolsEmptySearchState = document.getElementById("toolsEmptySearchState");
+const emptySearchQueryText = document.getElementById("emptySearchQueryText");
 const dropZone = document.getElementById("dropZone");
 const pdfFileInput = document.getElementById("pdfFileInput");
 const pdfPageImage = document.getElementById("pdfPageImage");
@@ -196,6 +207,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupKeyboardShortcuts();
   setupAdvancedFeatures();
   setupPdfCompressionFeature();
+  setupLandingToolDirectory();
 });
 
 // Theme Toggle
@@ -443,6 +455,21 @@ async function handlePdfUpload(file, password = null) {
     await loadPage(state.currentPage);
     updateSecurityTabUI();
     showToast("Document loaded into studio!", "success");
+
+    if (state.pendingTargetTab) {
+      const pendingTab = state.pendingTargetTab;
+      const pendingSub = state.pendingSubAction;
+      state.pendingTargetTab = null;
+      state.pendingSubAction = null;
+      setTimeout(() => {
+        const tabBtn = document.querySelector(`.tab-btn[data-tab="${pendingTab}"]`);
+        if (tabBtn) tabBtn.click();
+        if (pendingSub === "ruler") {
+          const rulerBtn = document.getElementById("btnToolMeasure") || document.getElementById("btnMeasureRuler");
+          if (rulerBtn) rulerBtn.click();
+        }
+      }, 150);
+    }
   } catch (error) {
     showToast(error.message, "error");
   } finally {
@@ -7014,6 +7041,7 @@ const COMMANDS = [
   { name: "Extract Embedded Images", category: "Tools", action: () => btnExtractImages.click() },
   { name: "Compress & Optimize PDF", category: "Tools", action: () => document.querySelector('[data-tab="tab-compress"]').click() },
   { name: "Security & Compliance Audit", category: "Tools", action: () => document.querySelector('[data-tab="tab-optimize"]').click() },
+  { name: "All PDF Tools Directory", category: "Tools", action: () => window.showLandingPage() },
   { name: "Download Edited PDF", category: "File", action: () => btnDownload.click() },
   { name: "Toggle Dark / Light Mode", category: "Theme", action: () => btnThemeToggle.click() }
 ];
@@ -9647,6 +9675,21 @@ async function submitPasswordPrompt() {
     await loadPage(1);
     updateSecurityTabUI();
     showToast("PDF unlocked and decrypted successfully!", "success");
+
+    if (state.pendingTargetTab) {
+      const pendingTab = state.pendingTargetTab;
+      const pendingSub = state.pendingSubAction;
+      state.pendingTargetTab = null;
+      state.pendingSubAction = null;
+      setTimeout(() => {
+        const tabBtn = document.querySelector(`.tab-btn[data-tab="${pendingTab}"]`);
+        if (tabBtn) tabBtn.click();
+        if (pendingSub === "ruler") {
+          const rulerBtn = document.getElementById("btnToolMeasure") || document.getElementById("btnMeasureRuler");
+          if (rulerBtn) rulerBtn.click();
+        }
+      }, 150);
+    }
   } catch (err) {
     if (errEl) {
       errEl.textContent = err.message || "Incorrect password. Please try again.";
@@ -9680,12 +9723,12 @@ async function updateSecurityTabUI() {
 
   if (isEncrypted) {
     badge.className = "audit-pill audit-pill-warn";
-    badge.textContent = "🔒 Encrypted (AES-256)";
+    badge.textContent = "Encrypted (AES-256)";
     if (desc) desc.textContent = "This document is password-protected. Print, copy, or editing restrictions may be enforced.";
     if (unlockCard) unlockCard.style.display = "block";
   } else {
     badge.className = "audit-pill audit-pill-ok";
-    badge.textContent = "🔓 Unprotected (No Password)";
+    badge.textContent = "Unprotected (No Password)";
     if (desc) desc.textContent = "This document has no password protection. You can encrypt it with AES-256 below.";
     if (unlockCard) unlockCard.style.display = "none";
   }
@@ -9702,5 +9745,193 @@ window.addEventListener("beforeunload", () => {
     }
   }
 });
+
+// ==========================================================================
+// B9. Landing / Tool Selection Page Directory Logic
+// ==========================================================================
+
+window.launchLandingTool = function(targetTab, subAction) {
+  if (state.docId) {
+    // If a document is currently loaded, switch to workspace and activate the tool tab directly
+    window.returnToWorkspace();
+    const tabBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
+    if (tabBtn) tabBtn.click();
+    if (subAction === "ruler") {
+      const rulerBtn = document.getElementById("btnToolMeasure") || document.getElementById("btnMeasureRuler");
+      if (rulerBtn) rulerBtn.click();
+    }
+  } else {
+    // If no document is open, store target tab and prompt file picker
+    state.pendingTargetTab = targetTab;
+    state.pendingSubAction = subAction;
+    showToast("Please choose a PDF file to begin using this tool.", "info");
+    const fileInput = document.getElementById("pdfFileInput");
+    if (fileInput) fileInput.click();
+  }
+};
+
+window.showLandingPage = function() {
+  if (state.docId) {
+    if (activeDocReturnBanner) activeDocReturnBanner.style.display = "flex";
+    if (activeDocBannerName) activeDocBannerName.textContent = state.filename || "document.pdf";
+  } else {
+    if (activeDocReturnBanner) activeDocReturnBanner.style.display = "none";
+  }
+  uploadSection.style.display = "block";
+  workspaceSection.style.display = "none";
+  if (state.docId) {
+    topNavActions.style.display = "flex";
+  }
+  const dirEl = document.getElementById("toolDirectorySection");
+  if (dirEl) {
+    dirEl.scrollIntoView({ behavior: "smooth" });
+  }
+};
+
+window.returnToWorkspace = function() {
+  if (state.docId) {
+    uploadSection.style.display = "none";
+    workspaceSection.style.display = "flex";
+    topNavActions.style.display = "flex";
+    if (activeDocReturnBanner) activeDocReturnBanner.style.display = "none";
+  } else {
+    uploadSection.style.display = "block";
+    workspaceSection.style.display = "none";
+    topNavActions.style.display = "none";
+  }
+};
+
+window.resetToolFilters = function() {
+  if (toolSearchInput) toolSearchInput.value = "";
+  if (btnClearToolSearch) btnClearToolSearch.style.display = "none";
+  
+  const catBtns = document.querySelectorAll(".tool-cat-btn");
+  catBtns.forEach(btn => {
+    if (btn.dataset.category === "all") {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+  filterToolsDirectory();
+};
+
+function filterToolsDirectory() {
+  const query = toolSearchInput ? toolSearchInput.value.trim().toLowerCase() : "";
+  const activeCatBtn = document.querySelector(".tool-cat-btn.active");
+  const activeCategory = activeCatBtn ? activeCatBtn.dataset.category : "all";
+  
+  const cards = document.querySelectorAll(".tool-dir-card");
+  let visibleCount = 0;
+
+  cards.forEach(card => {
+    const cardCat = card.dataset.category || "";
+    const cardKeywords = (card.dataset.keywords || "").toLowerCase();
+    const titleEl = card.querySelector("h4");
+    const descEl = card.querySelector("p");
+    const cardTitle = titleEl ? titleEl.textContent.toLowerCase() : "";
+    const cardDesc = descEl ? descEl.textContent.toLowerCase() : "";
+
+    const matchesCategory = activeCategory === "all" || cardCat === activeCategory;
+    const matchesQuery = !query || 
+      cardTitle.includes(query) || 
+      cardDesc.includes(query) || 
+      cardKeywords.includes(query) ||
+      cardCat.includes(query);
+
+    if (matchesCategory && matchesQuery) {
+      card.style.display = "flex";
+      visibleCount++;
+    } else {
+      card.style.display = "none";
+    }
+  });
+
+  if (toolsCountVisible) {
+    toolsCountVisible.textContent = visibleCount;
+  }
+
+  if (toolsEmptySearchState) {
+    if (visibleCount === 0) {
+      toolsEmptySearchState.style.display = "flex";
+      if (emptySearchQueryText) {
+        emptySearchQueryText.textContent = query 
+          ? `We couldn't find any tools matching "${query}" in this category.` 
+          : "No tools found in this category.";
+      }
+    } else {
+      toolsEmptySearchState.style.display = "none";
+    }
+  }
+}
+
+function setupLandingToolDirectory() {
+  // Navigation actions
+  if (btnNavToolsDirectory) {
+    btnNavToolsDirectory.addEventListener("click", () => {
+      if (workspaceSection.style.display !== "none") {
+        window.showLandingPage();
+      } else if (state.docId) {
+        window.returnToWorkspace();
+      } else {
+        const dirEl = document.getElementById("toolDirectorySection");
+        if (dirEl) dirEl.scrollIntoView({ behavior: "smooth" });
+      }
+    });
+  }
+
+  if (navBrandLogo) {
+    navBrandLogo.addEventListener("click", () => {
+      if (workspaceSection.style.display !== "none") {
+        window.showLandingPage();
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    });
+  }
+
+  // Live Search Input
+  if (toolSearchInput) {
+    toolSearchInput.addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      if (btnClearToolSearch) {
+        btnClearToolSearch.style.display = val ? "flex" : "none";
+      }
+      filterToolsDirectory();
+    });
+    
+    // Quick search shortcut (press "/" when not inside an input)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "/" && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") {
+        if (uploadSection.style.display !== "none") {
+          e.preventDefault();
+          toolSearchInput.focus();
+        }
+      }
+    });
+  }
+
+  if (btnClearToolSearch) {
+    btnClearToolSearch.addEventListener("click", () => {
+      if (toolSearchInput) {
+        toolSearchInput.value = "";
+        toolSearchInput.focus();
+      }
+      btnClearToolSearch.style.display = "none";
+      filterToolsDirectory();
+    });
+  }
+
+  // Category Filter Buttons
+  const catBtns = document.querySelectorAll(".tool-cat-btn");
+  catBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      catBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      filterToolsDirectory();
+    });
+  });
+}
+
 
 

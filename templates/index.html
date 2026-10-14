@@ -10,12 +10,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.9.9" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.11" />
 </head>
 <body>
   <!-- Top Navigation Bar -->
   <header class="navbar">
-    <div class="nav-brand">
+    <div class="nav-brand" id="navBrandLogo" style="cursor: pointer;" title="PDF Studio - Return to Tool Directory">
       <div class="logo-box">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -77,6 +77,11 @@
         <span>Download PDF</span>
       </button>
       
+      <button id="btnNavToolsDirectory" class="btn btn-secondary" title="View all PDF tools directory" aria-label="Tools Directory">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span>All Tools</span>
+      </button>
+
       <button id="btnNewDoc" class="btn btn-secondary" title="Open another PDF file" aria-label="Open another PDF file">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
         <span>Open</span>
@@ -121,9 +126,18 @@
             <span class="format-pill">PDF 1.0–2.0</span>
             <span class="format-pill">Fillable AcroForms</span>
             <span class="format-pill">Scanned &amp; OCR</span>
-            <span class="format-pill" onclick="event.stopPropagation(); openModal('standaloneUnlockModal');" style="cursor: pointer; background: rgba(16, 185, 129, 0.12); color: #059669; font-weight: 500;" title="Click to unlock any password-protected PDF">🔓 Unlock Protected PDF</span>
-            <span class="format-pill" onclick="event.stopPropagation(); openSplitModal();" style="cursor: pointer; background: rgba(245, 158, 11, 0.12); color: #d97706; font-weight: 500;" title="Click to visually select and split PDF pages">✂️ Split PDF</span>
-            <span class="format-pill" onclick="event.stopPropagation(); openMergeModal();" style="cursor: pointer; background: rgba(99, 102, 241, 0.12); color: #4f46e5; font-weight: 500;" title="Click to merge multiple PDF files into one master document">🗂️ Merge Multiple PDFs</span>
+            <span class="format-pill format-pill-action" onclick="event.stopPropagation(); openModal('standaloneUnlockModal');" title="Unlock any password-protected PDF">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+              <span>Unlock PDF</span>
+            </span>
+            <span class="format-pill format-pill-action" onclick="event.stopPropagation(); openSplitModal();" title="Visually select and split PDF pages">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
+              <span>Split PDF</span>
+            </span>
+            <span class="format-pill format-pill-action" onclick="event.stopPropagation(); openMergeModal();" title="Merge multiple PDF files into one master document">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+              <span>Merge PDFs</span>
+            </span>
           </div>
         </div>
       </div>
@@ -168,91 +182,505 @@
         </div>
       </div>
 
-      <!-- Feature Grid on Landing Page -->
-      <div class="feature-grid-header">
-        <h3>Studio Capabilities &amp; Tools</h3>
-        <p>Click any feature below to select a PDF and get started immediately</p>
+      <!-- Active Document Return Banner (shown if user returns to tools directory while a PDF is open) -->
+      <div id="activeDocReturnBanner" class="active-doc-banner" style="display: none;">
+        <div class="active-doc-banner-info">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          <span>You have an open document in the studio: <strong id="activeDocBannerName">document.pdf</strong></span>
+        </div>
+        <button type="button" id="btnReturnToWorkspace" class="btn btn-primary btn-sm" onclick="returnToWorkspace()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          <span>Return to Studio Editor</span>
+        </button>
       </div>
 
-      <div class="feature-grid">
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-blue">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+      <!-- Studio Capabilities & Categorized Tool Directory -->
+      <div class="tool-directory-section" id="toolDirectorySection">
+        <div class="tool-directory-header">
+          <div class="tool-header-left">
+            <span class="directory-pill">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+              Tools &amp; Capabilities Directory
+            </span>
+            <h3 class="directory-title">All PDF Tools</h3>
+            <p class="directory-subtitle">Choose from our complete suite of 23 high-precision tools or search below</p>
           </div>
-          <div class="feat-card-content">
-            <h4>Native Text Editing</h4>
-            <p>Click-to-edit existing text blocks in-place, change fonts/colors, and insert rich text boxes.</p>
-          </div>
-        </div>
-
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-emerald">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          </div>
-          <div class="feat-card-content">
-            <h4>Interactive AcroForms</h4>
-            <p>Fill out fillable forms, author new text inputs, checkboxes, dropdowns, and flatten forms permanently.</p>
-          </div>
-        </div>
-
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-rose">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-          </div>
-          <div class="feat-card-content">
-            <h4>True Redaction &amp; PII</h4>
-            <p>Scrub sensitive text, images, and metadata with custom reason codes and automated PII pattern detector.</p>
+          
+          <!-- Live Client-Side Search Bar -->
+          <div class="tool-search-wrap">
+            <svg class="tool-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="toolSearchInput" class="tool-search-input" placeholder="Search any tool (e.g. merge, split, word, redact, acroform, compress...)" autocomplete="off" />
+            <button type="button" id="btnClearToolSearch" class="tool-search-clear" style="display: none;" title="Clear search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
         </div>
 
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-teal">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+        <!-- Filter Categories Bar -->
+        <div class="tool-categories-bar" id="toolCategoriesBar">
+          <button type="button" class="tool-cat-btn active" data-category="all">
+            <span>All Tools</span>
+            <span class="cat-count" id="countAll">23</span>
+          </button>
+          <button type="button" class="tool-cat-btn" data-category="organize">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            <span>Organize &amp; Pages</span>
+            <span class="cat-count" id="countOrganize">5</span>
+          </button>
+          <button type="button" class="tool-cat-btn" data-category="edit">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            <span>Edit &amp; Annotate</span>
+            <span class="cat-count" id="countEdit">7</span>
+          </button>
+          <button type="button" class="tool-cat-btn" data-category="convert">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+            <span>Convert &amp; Export</span>
+            <span class="cat-count" id="countConvert">4</span>
+          </button>
+          <button type="button" class="tool-cat-btn" data-category="security">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>Security &amp; Redact</span>
+            <span class="cat-count" id="countSecurity">4</span>
+          </button>
+          <button type="button" class="tool-cat-btn" data-category="optimize">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+            <span>Optimize &amp; Inspect</span>
+            <span class="cat-count" id="countOptimize">3</span>
+          </button>
+        </div>
+
+        <div class="tools-status-bar">
+          <span class="tools-count-text">Showing <strong id="toolsCountVisible">23</strong> of 23 tools</span>
+        </div>
+
+        <!-- Tool Directory Cards Grid -->
+        <div class="tool-directory-grid" id="toolDirectoryGrid">
+          <!-- 1. Merge PDFs -->
+          <div class="tool-dir-card" data-category="organize" data-keywords="merge combine join stitch unite pages files assemble documents master" onclick="openMergeModal()">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+              </div>
+              <span class="tool-cat-tag">Organize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Merge PDFs</h4>
+              <p>Combine multiple PDF documents into a single master file with interactive visual reordering and page rotation.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Open Merge Studio</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
           </div>
-          <div class="feat-card-content">
-            <h4>Table Extraction to Excel</h4>
-            <p>Detect structured document tables and export clean spreadsheets directly to Microsoft Excel (.xlsx).</p>
+
+          <!-- 2. Split & Extract Pages -->
+          <div class="tool-dir-card" data-category="organize" data-keywords="split extract burst separate pages picker range divide separate single zip" onclick="openSplitModal()">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-emerald">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Organize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Split &amp; Extract Pages</h4>
+              <p>Visually select specific page ranges to extract into a single PDF or export all pages as individual files in a ZIP archive.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Open Split Studio</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 3. Organize & Rotate Pages -->
+          <div class="tool-dir-card" data-category="organize" data-keywords="organize rotate reorder layout delete duplicate pages rearrange orient thumbnails" onclick="launchLandingTool('tab-organize')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-amber">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+              </div>
+              <span class="tool-cat-tag">Organize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Organize &amp; Rotate Pages</h4>
+              <p>Drag-and-drop page reordering, 90° clockwise/counter-clockwise rotation, page duplication, and page deletion.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Organize Pages</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 4. Add Page Numbers -->
+          <div class="tool-dir-card" data-category="organize" data-keywords="page numbers numbering paginate headers footers bates pagination ranges roman digits" onclick="launchLandingTool('tab-page-numbers')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-indigo">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Organize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Add Page Numbers</h4>
+              <p>Insert dynamic header and footer page numbering across custom ranges with 6 alignment positions and custom formats.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Number Pages</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 5. Bookmarks & TOC Outline -->
+          <div class="tool-dir-card" data-category="organize" data-keywords="bookmarks toc outline table of contents navigation tree index chapters sections" onclick="launchLandingTool('tab-bookmarks')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-purple">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+              </div>
+              <span class="tool-cat-tag">Organize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Bookmarks &amp; TOC Outline</h4>
+              <p>View, author, rename, and reorder hierarchical Table of Contents bookmarks for rapid document navigation.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Manage Bookmarks</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 6. Native Text Editing -->
+          <div class="tool-dir-card" data-category="edit" data-keywords="edit text native inline replace font color typo modify rewrite content find search" onclick="launchLandingTool('tab-edit')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+              </div>
+              <span class="tool-cat-tag">Edit</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Native Text Editing</h4>
+              <p>Click-to-edit existing text blocks in-place, change fonts, sizes, and colors, or search &amp; replace across all pages.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Edit Text</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 7. Insert Text & Headings -->
+          <div class="tool-dir-card" data-category="edit" data-keywords="add text insert textbox heading title label typography notes paragraph" onclick="launchLandingTool('tab-add')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-teal">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Edit</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Insert Text &amp; Headings</h4>
+              <p>Place custom typographic text boxes anywhere with variable opacity, alignment, and background highlights.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Add Text Box</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 8. Insert Images & Signatures -->
+          <div class="tool-dir-card" data-category="edit" data-keywords="image picture logo sign signature photo stamp transparent png watermark insert" onclick="launchLandingTool('tab-image')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-purple">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              </div>
+              <span class="tool-cat-tag">Edit</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Images &amp; Signatures</h4>
+              <p>Upload and place PNG/JPG logos, photos, signatures, transparent stamps with scaling, opacity, and rotation.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Insert Images</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 9. Draw Shapes & Highlighters -->
+          <div class="tool-dir-card" data-category="edit" data-keywords="shapes draw rectangle circle ellipse line arrow markup highlight marker stroke" onclick="launchLandingTool('tab-shapes')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-amber">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 22 22 22"></polygon></svg>
+              </div>
+              <span class="tool-cat-tag">Edit</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Shapes &amp; Highlighters</h4>
+              <p>Draw geometric rectangles, circles, arrows, callout lines, and translucent marker highlighter markups.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Draw Shapes</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 10. Interactive AcroForms -->
+          <div class="tool-dir-card" data-category="edit" data-keywords="acroforms forms fillable fields textfield checkbox radio dropdown flatten author inputs" onclick="launchLandingTool('tab-forms')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-emerald">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Edit</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Interactive AcroForms</h4>
+              <p>Fill out fillable PDF forms, author new text inputs, checkboxes, dropdowns, and flatten forms permanently.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>AcroForms Studio</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 11. Ink Drawing & Sticky Notes -->
+          <div class="tool-dir-card" data-category="edit" data-keywords="ink pencil freehand draw eraser sticky notes comments annotations review badge stamp" onclick="launchLandingTool('tab-annotate')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-rose">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline></svg>
+              </div>
+              <span class="tool-cat-tag">Edit</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Ink &amp; Sticky Notes</h4>
+              <p>Freehand pencil sketch with pressure control, multi-color palette, eraser, sticky comments, and verification badges.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Ink &amp; Annotate</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 12. Calibrated Measurement Ruler -->
+          <div class="tool-dir-card" data-category="edit" data-keywords="measure ruler architectural blueprint scale dimension distance perimeter area units calibrate" onclick="launchLandingTool('tab-shapes', 'ruler')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-cyan">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20"></path><path d="M6 8v8"></path><path d="M10 9v6"></path><path d="M14 9v6"></path><path d="M18 8v8"></path></svg>
+              </div>
+              <span class="tool-cat-tag">Edit</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Calibrated Measurement Ruler</h4>
+              <p>Measure calibrated blueprint distances, polygon perimeters, and surface area with custom architectural scales.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Measure Dimensions</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 13. PDF to Word (.docx) -->
+          <div class="tool-dir-card" data-category="convert" data-keywords="word docx doc convert export microsoft office editable text layout tables" onclick="launchLandingTool('tab-convert', 'word')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Convert</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>PDF to Word (.docx)</h4>
+              <p>Convert PDF documents directly into fully editable Microsoft Word documents with preserved formatting.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Convert to Word</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 14. Table Extraction to Excel (.xlsx) -->
+          <div class="tool-dir-card" data-category="convert" data-keywords="table excel xlsx spreadsheet csv export detect extract data columns rows grid" onclick="launchLandingTool('tab-convert', 'excel')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-emerald">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Convert</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Table to Excel (.xlsx)</h4>
+              <p>Detect structured document tables, preview rows and columns, and export clean spreadsheets to Microsoft Excel.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Extract Tables</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 15. PDF to Images (PNG/JPG) -->
+          <div class="tool-dir-card" data-category="convert" data-keywords="images png jpg jpeg convert export render dpi zip archive photos graphics" onclick="launchLandingTool('tab-convert', 'images')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-purple">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              </div>
+              <span class="tool-cat-tag">Convert</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>PDF to Images (PNG/JPG)</h4>
+              <p>Render document pages into crisp high-resolution PNG or JPEG image files bundled in a convenient ZIP archive.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Convert to Images</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 16. Extract Text & Assets -->
+          <div class="tool-dir-card" data-category="convert" data-keywords="extract text content raw embedded images assets copy inspect glyphs fonts" onclick="launchLandingTool('tab-extract')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-indigo">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Convert</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Extract Text &amp; Assets</h4>
+              <p>Extract raw text streams, structural layout blocks, font glyphs, and original embedded image assets.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Extract Content</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 17. Unlock & Decrypt PDF -->
+          <div class="tool-dir-card" data-category="security" data-keywords="unlock decrypt remove password strip permissions secure security decryption restrictions" onclick="openModal('standaloneUnlockModal')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-rose">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+              </div>
+              <span class="tool-cat-tag">Security</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Unlock &amp; Decrypt PDF</h4>
+              <p>Remove user and owner passwords from encrypted PDFs to unlock editing restrictions and save an unlocked copy.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Unlock PDF</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 18. Protect with AES-256 Password -->
+          <div class="tool-dir-card" data-category="security" data-keywords="protect encrypt password aes 256 secure lock permissions prevent print copy" onclick="launchLandingTool('tab-protect')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-amber">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              </div>
+              <span class="tool-cat-tag">Security</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Protect with Password</h4>
+              <p>Encrypt documents with military-grade AES-256 and configure granular permissions for printing, editing, and copying.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Protect PDF</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 19. True Redaction & PII -->
+          <div class="tool-dir-card" data-category="security" data-keywords="redact redaction pii sensitive burn black out erase regex ssn email credit card scrub confidential" onclick="launchLandingTool('tab-redact')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-rose">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              </div>
+              <span class="tool-cat-tag">Security</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>True Redaction &amp; PII</h4>
+              <p>Permanently burn out confidential text, emails, SSNs, credit cards, and images with automated PII pattern scanning.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Redact Sensitive Data</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 20. Stamp Watermark -->
+          <div class="tool-dir-card" data-category="security" data-keywords="watermark stamp draft confidential diagonal copyright protect brand logo mark" onclick="launchLandingTool('tab-watermark')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-teal">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="9 12 11 14 15 10"></polyline></svg>
+              </div>
+              <span class="tool-cat-tag">Security</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Stamp Watermark</h4>
+              <p>Apply custom diagonal or horizontal text watermarks across selected pages with configurable opacity, size, and rotation.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Stamp Watermark</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 21. Compress & Optimize PDF -->
+          <div class="tool-dir-card" data-category="optimize" data-keywords="compress optimize shrink reduce file size dpi quality minimize defragment email" onclick="launchLandingTool('tab-compress')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-cyan">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Optimize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Compress &amp; Optimize PDF</h4>
+              <p>Multi-pass compression with 4 presets, image downsampling, grayscale conversion, and unneeded metadata removal.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Compress PDF</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 22. Document Diff Comparison -->
+          <div class="tool-dir-card" data-category="optimize" data-keywords="compare diff revisions differences changes side by side visual compare two versions audit" onclick="openModal('compareModal')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-indigo">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="8" height="18" rx="2"></rect><rect x="14" y="3" width="8" height="18" rx="2"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+              </div>
+              <span class="tool-cat-tag">Optimize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Document Diff Compare</h4>
+              <p>Compare two PDF documents side-by-side with visual pixel diff highlighting to instantly detect changes and revisions.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Compare Documents</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+
+          <!-- 23. Security & PDF/A Audit -->
+          <div class="tool-dir-card" data-category="optimize" data-keywords="audit compliance pdfa pdf/a sanitize javascript inspector inspect metadata security permissions" onclick="launchLandingTool('tab-optimize')">
+            <div class="feat-card-top">
+              <div class="feat-icon-box icon-emerald">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              </div>
+              <span class="tool-cat-tag">Optimize</span>
+            </div>
+            <div class="feat-card-content">
+              <h4>Security &amp; PDF/A Audit</h4>
+              <p>Audit PDF/A compliance, inspect embedded fonts and metadata, sanitize attachments, and detect malicious JavaScript actions.</p>
+            </div>
+            <div class="feat-card-footer">
+              <span>Audit Compliance</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
           </div>
         </div>
 
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-amber">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        <!-- Empty Results State (when search query matches 0 tools) -->
+        <div class="tools-empty-state" id="toolsEmptySearchState" style="display: none;">
+          <div class="empty-icon-box">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           </div>
-          <div class="feat-card-content">
-            <h4>Page Organization &amp; Split</h4>
-            <p>Drag-and-drop page reordering, rotation, page extraction, splitting, and merging multiple PDF files.</p>
-          </div>
-        </div>
-
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-purple">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-          </div>
-          <div class="feat-card-content">
-            <h4>Ink, Stamps &amp; Annotations</h4>
-            <p>Freehand pencil drawing with eraser, sticky note placement, highlighter markups, and official verification stamps.</p>
-          </div>
-        </div>
-
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-indigo">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20"></path><path d="M6 8v8"></path><path d="M10 9v6"></path><path d="M14 9v6"></path><path d="M18 8v8"></path></svg>
-          </div>
-          <div class="feat-card-content">
-            <h4>Measurements &amp; Blueprint Ruler</h4>
-            <p>Measure calibrated distances, polygon perimeter, and surface area with custom architectural unit scales.</p>
-          </div>
-        </div>
-
-        <div class="feature-card" onclick="document.getElementById('pdfFileInput').click()">
-          <div class="feat-icon-box icon-cyan">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          </div>
-          <div class="feat-card-content">
-            <h4>Compression &amp; Security</h4>
-            <p>Multi-pass lossless compression, PDF/A compliance audits, and AES-256 document password encryption.</p>
-          </div>
+          <h4>No tools matched your search</h4>
+          <p id="emptySearchQueryText">We couldn't find any tools matching your query.</p>
+          <button type="button" class="btn btn-secondary btn-sm" id="btnResetToolFilter" onclick="resetToolFilters()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
+            <span>Reset Filters &amp; View All 23 Tools</span>
+          </button>
         </div>
       </div>
     </section>
@@ -2711,6 +3139,6 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=2.10.6" defer></script>
+  <script src="/static/js/app.js?v=2.10.8" defer></script>
 </body>
 </html>
