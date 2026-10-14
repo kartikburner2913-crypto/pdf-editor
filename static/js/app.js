@@ -299,6 +299,7 @@ function setupTabs() {
       if (targetId === "tab-bookmarks") loadBookmarks();
       if (targetId === "tab-optimize") loadMetadataAndAudit();
       if (targetId === "tab-protect") updateSecurityTabUI();
+      if (targetId === "tab-split" && typeof renderSplitViews === "function") renderSplitViews();
 
       // Reset specific modes if tab changed
       if (targetId !== "tab-add" && targetId !== "tab-edit") {
@@ -433,7 +434,12 @@ async function handlePdfUpload(file, password = null) {
 
     updateUndoRedoButtons(false, false);
     updatePageOrderInput();
+    if (typeof splitState !== "undefined") {
+      splitState.selectedPages.clear();
+      splitState.lastClickedPage = null;
+    }
     populateThumbnails();
+    if (typeof renderSplitViews === "function") renderSplitViews();
     await loadPage(state.currentPage);
     updateSecurityTabUI();
     showToast("Document loaded into studio!", "success");
@@ -4402,46 +4408,556 @@ function setupToolActions() {
     await applyPageOrder(parts);
   });
 
-  // 10. Split & Burst
-  btnSplitRange.addEventListener("click", async () => {
-    const rangeStr = document.getElementById("splitRangeInput").value.trim();
-    if (!rangeStr) {
-      showToast("Please enter page ranges (e.g. 1-3, 5).", "error");
+  // ==========================================================================
+  // B5. Split PDF — Visual Page Picker & Extraction Engine
+  // ==========================================================================
+
+  const splitState = {
+    selectedPages: new Set(),
+    lastClickedPage: null
+  };
+
+  /**
+   * Compacts a Set or Array of page numbers into a sorted range string (e.g. "1-3, 5, 8-10").
+   */
+  function formatSelectedPagesToRangeString(pageNumbers) {
+    if (!pageNumbers) return "";
+    const nums = Array.from(pageNumbers).map(Number).filter(n => !isNaN(n) && n > 0);
+    if (nums.length === 0) return "";
+    nums.sort((a, b) => a - b);
+    const unique = Array.from(new Set(nums));
+    const ranges = [];
+    let start = unique[0];
+    let prev = unique[0];
+
+    for (let i = 1; i < unique.length; i++) {
+      const cur = unique[i];
+      if (cur === prev + 1) {
+        prev = cur;
+      } else {
+        ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+        start = cur;
+        prev = cur;
+      }
+    }
+    ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+    return ranges.join(", ");
+  }
+
+  /**
+   * Parses a range string like "1-3, 5, 8-10" into a Set of valid page numbers clamped to [1, totalPages].
+   * Gracefully handles reversed ranges (e.g. "5-2"), non-numeric tokens, and typing states.
+   */
+  function parseRangeStringToPageSet(rangeStr, totalPages = (state.totalPages || 1)) {
+    const result = new Set();
+    if (!rangeStr || typeof rangeStr !== "string") return result;
+
+    const parts = rangeStr.split(",");
+    for (const part of parts) {
+      const token = part.trim();
+      if (!token) continue;
+
+      if (token.includes("-")) {
+        const sub = token.split("-");
+        if (sub.length === 2) {
+          const s = parseInt(sub[0].trim(), 10);
+          const e = parseInt(sub[1].trim(), 10);
+          if (!isNaN(s) && !isNaN(e) && s > 0 && e > 0) {
+            const low = Math.max(1, Math.min(s, e));
+            const high = Math.min(totalPages, Math.max(s, e));
+            for (let p = low; p <= high; p++) {
+              result.add(p);
+            }
+          }
+        }
+      } else {
+        const n = parseInt(token, 10);
+        if (!isNaN(n) && n >= 1 && n <= totalPages) {
+          result.add(n);
+        }
+      }
+    }
+    return result;
+  }
+
+  function updateSplitCardSelectedClasses() {
+    // Sidebar cards
+    const sidebarCards = document.querySelectorAll("#splitSidebarGrid .split-card");
+    sidebarCards.forEach(card => {
+      const p = parseInt(card.dataset.page, 10);
+      if (splitState.selectedPages.has(p)) {
+        card.classList.add("selected");
+      } else {
+        card.classList.remove("selected");
+      }
+    });
+
+    // Modal cards
+    const modalCards = document.querySelectorAll("#splitModalCardsGrid .split-modal-card");
+    modalCards.forEach(card => {
+      const p = parseInt(card.dataset.page, 10);
+      if (splitState.selectedPages.has(p)) {
+        card.classList.add("selected");
+      } else {
+        card.classList.remove("selected");
+      }
+    });
+  }
+
+  function updateSplitSummaryText() {
+    const count = splitState.selectedPages.size;
+    const total = state.totalPages || 0;
+    const summaryEl = document.getElementById("splitSelectionSummary");
+    const modalBadge = document.getElementById("splitModalStatsBadge");
+    const text = `${count} of ${total} page${total === 1 ? "" : "s"} selected`;
+    if (summaryEl) summaryEl.textContent = text;
+    if (modalBadge) modalBadge.textContent = text;
+  }
+
+  function syncSplitFromSelection() {
+    const rangeStr = formatSelectedPagesToRangeString(splitState.selectedPages);
+
+    const sidebarInput = document.getElementById("splitRangeInput");
+    const modalInput = document.getElementById("splitModalRangeInput");
+    if (sidebarInput && document.activeElement !== sidebarInput) {
+      sidebarInput.value = rangeStr;
+    }
+    if (modalInput && document.activeElement !== modalInput) {
+      modalInput.value = rangeStr;
+    }
+
+    updateSplitCardSelectedClasses();
+    updateSplitSummaryText();
+  }
+
+  function handleSplitRangeInput(sourceInput) {
+    if (!sourceInput) return;
+    const text = sourceInput.value;
+    splitState.selectedPages = parseRangeStringToPageSet(text, state.totalPages || 1);
+
+    const sidebarInput = document.getElementById("splitRangeInput");
+    const modalInput = document.getElementById("splitModalRangeInput");
+    if (sourceInput === sidebarInput && modalInput) {
+      modalInput.value = text;
+    } else if (sourceInput === modalInput && sidebarInput) {
+      sidebarInput.value = text;
+    }
+
+    updateSplitCardSelectedClasses();
+    updateSplitSummaryText();
+  }
+
+  function handleSplitPageClick(pageNumber, isShift = false) {
+    if (!pageNumber || pageNumber < 1 || pageNumber > state.totalPages) return;
+
+    if (isShift && splitState.lastClickedPage !== null) {
+      const min = Math.min(splitState.lastClickedPage, pageNumber);
+      const max = Math.max(splitState.lastClickedPage, pageNumber);
+      const shouldSelect = !splitState.selectedPages.has(pageNumber);
+      for (let p = min; p <= max; p++) {
+        if (shouldSelect) {
+          splitState.selectedPages.add(p);
+        } else {
+          splitState.selectedPages.delete(p);
+        }
+      }
+    } else {
+      if (splitState.selectedPages.has(pageNumber)) {
+        splitState.selectedPages.delete(pageNumber);
+      } else {
+        splitState.selectedPages.add(pageNumber);
+      }
+      splitState.lastClickedPage = pageNumber;
+    }
+
+    syncSplitFromSelection();
+  }
+
+  function renderSplitSidebar() {
+    const grid = document.getElementById("splitSidebarGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+
+    if (!state.docId || state.totalPages < 1) {
+      grid.innerHTML = `
+        <div class="empty-queue-placeholder" id="splitEmptySidebarState" style="text-align: center; padding: 24px 10px; color: var(--text-muted); font-size: 11.5px; grid-column: 1 / -1;">
+          No active document loaded.<br>Open a PDF to select pages.
+        </div>`;
+      updateSplitSummaryText();
       return;
     }
 
-    setLoading(true, "Extracting pages...");
+    for (let p = 1; p <= state.totalPages; p++) {
+      const card = document.createElement("div");
+      card.className = "split-card";
+      card.dataset.page = p;
+      if (splitState.selectedPages.has(p)) card.classList.add("selected");
+      card.title = `Page ${p} (Click to toggle, Shift+click for range)`;
+
+      const check = document.createElement("div");
+      check.className = "split-card-check";
+      check.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+
+      const thumb = document.createElement("div");
+      thumb.className = "split-card-thumb";
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = `P.${p}`;
+      img.src = `/api/document/${state.docId}/page/${p}/image?zoom=0.2&format=jpeg&v=${state.docVersion || 1}`;
+      thumb.appendChild(img);
+
+      const num = document.createElement("div");
+      num.className = "split-card-num";
+      num.textContent = `Page ${p}`;
+
+      card.appendChild(check);
+      card.appendChild(thumb);
+      card.appendChild(num);
+
+      card.addEventListener("click", (e) => {
+        handleSplitPageClick(p, e.shiftKey);
+      });
+
+      grid.appendChild(card);
+    }
+
+    updateSplitSummaryText();
+  }
+
+  function renderSplitModal() {
+    const grid = document.getElementById("splitModalCardsGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+
+    if (!state.docId || state.totalPages < 1) {
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; padding: 40px 10px; color: var(--text-muted); font-size: 13px;">
+          No active document loaded. Please open a PDF document first.
+        </div>`;
+      updateSplitSummaryText();
+      return;
+    }
+
+    for (let p = 1; p <= state.totalPages; p++) {
+      const card = document.createElement("div");
+      card.className = "split-modal-card";
+      card.dataset.page = p;
+      if (splitState.selectedPages.has(p)) card.classList.add("selected");
+      card.title = `Page ${p} (Click to toggle, Shift+click for range)`;
+
+      const check = document.createElement("div");
+      check.className = "split-card-check";
+      check.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+
+      const thumb = document.createElement("div");
+      thumb.className = "split-modal-thumb";
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = `Page ${p}`;
+      img.src = `/api/document/${state.docId}/page/${p}/image?zoom=0.28&format=jpeg&v=${state.docVersion || 1}`;
+      thumb.appendChild(img);
+
+      const footer = document.createElement("div");
+      footer.className = "split-modal-footer";
+      const num = document.createElement("div");
+      num.className = "split-modal-num";
+      num.textContent = `Page ${p}`;
+      footer.appendChild(num);
+
+      card.appendChild(check);
+      card.appendChild(thumb);
+      card.appendChild(footer);
+
+      card.addEventListener("click", (e) => {
+        handleSplitPageClick(p, e.shiftKey);
+      });
+
+      grid.appendChild(card);
+    }
+
+    updateSplitSummaryText();
+  }
+
+  function renderSplitViews() {
+    if (state.totalPages && state.totalPages > 0) {
+      // Clamp any selected pages to active document total
+      for (const p of Array.from(splitState.selectedPages)) {
+        if (p > state.totalPages || p < 1) {
+          splitState.selectedPages.delete(p);
+        }
+      }
+    }
+    renderSplitSidebar();
+    renderSplitModal();
+    syncSplitFromSelection();
+  }
+
+  window.openSplitModal = function() {
+    if (!state.docId) {
+      showToast("Please open a PDF file to select and extract pages.", "info");
+      if (pdfFileInput) {
+        const originalOnChange = pdfFileInput.onchange;
+        pdfFileInput.onchange = async (e) => {
+          pdfFileInput.onchange = originalOnChange;
+          const file = e.target.files && e.target.files[0];
+          if (file) {
+            await handlePdfUpload(file);
+            const splitTab = document.querySelector('[data-tab="tab-split"]');
+            if (splitTab) splitTab.click();
+            renderSplitViews();
+            openModal("splitStudioModal");
+          }
+        };
+        pdfFileInput.click();
+      }
+      return;
+    }
+    renderSplitViews();
+    openModal("splitStudioModal");
+  };
+
+  async function executeSplitExtract(mode = "single", openInStudio = false) {
+    if (!state.docId) {
+      showToast("No active document loaded.", "error");
+      return;
+    }
+
+    const rangeInput = document.getElementById("splitRangeInput");
+    let rangeStr = formatSelectedPagesToRangeString(splitState.selectedPages);
+    if (!rangeStr && rangeInput && rangeInput.value.trim()) {
+      rangeStr = rangeInput.value.trim();
+    }
+
+    if (!rangeStr) {
+      showToast("Please select at least one page to extract.", "warning");
+      return;
+    }
+
+    // Determine output filename
+    const filenameInput = document.getElementById(openInStudio ? "splitModalOutputFilename" : "splitOutputFilename")
+      || document.getElementById("splitOutputFilename");
+    let outName = (filenameInput && filenameInput.value.trim()) || `extracted_${state.filename || "document.pdf"}`;
+    if (!outName.toLowerCase().endsWith(".pdf")) outName += ".pdf";
+
+    if (mode === "zip") {
+      setLoading(true, "Extracting selected pages to ZIP archive...");
+      try {
+        const res = await fetch(`/api/document/${state.docId}/extract-zip`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page_ranges: rangeStr, prefix: "extracted_page" })
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "ZIP Extraction failed");
+        }
+        const blob = await res.blob();
+        const baseDoc = (state.filename || "document").replace(/\.pdf$/i, "");
+        downloadBlob(blob, `extracted_${baseDoc}_pages.zip`);
+        closeModal("splitStudioModal");
+        showToast("Extracted pages downloaded as ZIP archive!", "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Single PDF extraction
+    setLoading(true, openInStudio ? "Extracting pages & loading studio..." : "Extracting pages to PDF...");
     try {
       const res = await fetch(`/api/document/${state.docId}/split`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ page_ranges: rangeStr })
+        body: JSON.stringify({ page_ranges: rangeStr, output_filename: outName })
       });
-      if (!res.ok) throw new Error("Split failed");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || "Split extraction failed");
+      }
       const blob = await res.blob();
-      downloadBlob(blob, `extracted_${state.filename}`);
-      showToast("Extracted PDF downloaded!", "success");
-    } catch (err) {
-      showToast(err.message, "error");
-    } finally {
-      setLoading(false);
-    }
-  });
 
-  btnBurstZip.addEventListener("click", async () => {
-    setLoading(true, "Bursting pages to ZIP...");
-    try {
-      const res = await fetch(`/api/document/${state.docId}/burst`);
-      if (!res.ok) throw new Error("Burst failed");
-      const blob = await res.blob();
-      downloadBlob(blob, `burst_${state.filename}.zip`);
-      showToast("Burst ZIP downloaded!", "success");
+      if (openInStudio) {
+        closeModal("splitStudioModal");
+        const extractedFile = new File([blob], outName, { type: "application/pdf" });
+        await handlePdfUpload(extractedFile);
+        showToast("Extracted pages opened in PDF Studio!", "success");
+      } else {
+        closeModal("splitStudioModal");
+        downloadBlob(blob, outName);
+        showToast("Extracted PDF downloaded successfully!", "success");
+      }
     } catch (err) {
       showToast(err.message, "error");
     } finally {
       setLoading(false);
     }
-  });
+  }
+
+  // Attach Split Event Listeners
+  const btnOpenSplitModal = document.getElementById("btnOpenSplitModal");
+  if (btnOpenSplitModal) {
+    btnOpenSplitModal.addEventListener("click", () => window.openSplitModal());
+  }
+
+  // Shortcut buttons - Sidebar
+  const btnSplitSelectAll = document.getElementById("btnSplitSelectAll");
+  if (btnSplitSelectAll) {
+    btnSplitSelectAll.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      for (let p = 1; p <= state.totalPages; p++) splitState.selectedPages.add(p);
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnSplitSelectNone = document.getElementById("btnSplitSelectNone");
+  if (btnSplitSelectNone) {
+    btnSplitSelectNone.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnSplitSelectOdd = document.getElementById("btnSplitSelectOdd");
+  if (btnSplitSelectOdd) {
+    btnSplitSelectOdd.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      for (let p = 1; p <= state.totalPages; p += 2) splitState.selectedPages.add(p);
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnSplitSelectEven = document.getElementById("btnSplitSelectEven");
+  if (btnSplitSelectEven) {
+    btnSplitSelectEven.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      for (let p = 2; p <= state.totalPages; p += 2) splitState.selectedPages.add(p);
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnSplitInvert = document.getElementById("btnSplitInvert");
+  if (btnSplitInvert) {
+    btnSplitInvert.addEventListener("click", () => {
+      const next = new Set();
+      for (let p = 1; p <= state.totalPages; p++) {
+        if (!splitState.selectedPages.has(p)) next.add(p);
+      }
+      splitState.selectedPages = next;
+      syncSplitFromSelection();
+    });
+  }
+
+  // Shortcut buttons - Modal
+  const btnModalSplitSelectAll = document.getElementById("btnModalSplitSelectAll");
+  if (btnModalSplitSelectAll) {
+    btnModalSplitSelectAll.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      for (let p = 1; p <= state.totalPages; p++) splitState.selectedPages.add(p);
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnModalSplitSelectNone = document.getElementById("btnModalSplitSelectNone");
+  if (btnModalSplitSelectNone) {
+    btnModalSplitSelectNone.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnModalSplitSelectOdd = document.getElementById("btnModalSplitSelectOdd");
+  if (btnModalSplitSelectOdd) {
+    btnModalSplitSelectOdd.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      for (let p = 1; p <= state.totalPages; p += 2) splitState.selectedPages.add(p);
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnModalSplitSelectEven = document.getElementById("btnModalSplitSelectEven");
+  if (btnModalSplitSelectEven) {
+    btnModalSplitSelectEven.addEventListener("click", () => {
+      splitState.selectedPages.clear();
+      for (let p = 2; p <= state.totalPages; p += 2) splitState.selectedPages.add(p);
+      syncSplitFromSelection();
+    });
+  }
+
+  const btnModalSplitInvert = document.getElementById("btnModalSplitInvert");
+  if (btnModalSplitInvert) {
+    btnModalSplitInvert.addEventListener("click", () => {
+      const next = new Set();
+      for (let p = 1; p <= state.totalPages; p++) {
+        if (!splitState.selectedPages.has(p)) next.add(p);
+      }
+      splitState.selectedPages = next;
+      syncSplitFromSelection();
+    });
+  }
+
+  // Inputs live sync
+  const splitRangeInput = document.getElementById("splitRangeInput");
+  if (splitRangeInput) {
+    splitRangeInput.addEventListener("input", () => handleSplitRangeInput(splitRangeInput));
+  }
+
+  const splitModalRangeInput = document.getElementById("splitModalRangeInput");
+  if (splitModalRangeInput) {
+    splitModalRangeInput.addEventListener("input", () => handleSplitRangeInput(splitModalRangeInput));
+  }
+
+  // Extraction action triggers
+  if (btnSplitRange) {
+    btnSplitRange.addEventListener("click", () => executeSplitExtract("single", false));
+  }
+
+  const btnSplitOpenStudio = document.getElementById("btnSplitOpenStudio");
+  if (btnSplitOpenStudio) {
+    btnSplitOpenStudio.addEventListener("click", () => executeSplitExtract("single", true));
+  }
+
+  const btnExtractZip = document.getElementById("btnExtractZip");
+  if (btnExtractZip) {
+    btnExtractZip.addEventListener("click", () => executeSplitExtract("zip", false));
+  }
+
+  const btnModalSplitDownload = document.getElementById("btnModalSplitDownload");
+  if (btnModalSplitDownload) {
+    btnModalSplitDownload.addEventListener("click", () => executeSplitExtract("single", false));
+  }
+
+  const btnModalSplitOpen = document.getElementById("btnModalSplitOpen");
+  if (btnModalSplitOpen) {
+    btnModalSplitOpen.addEventListener("click", () => executeSplitExtract("single", true));
+  }
+
+  const btnModalExtractZip = document.getElementById("btnModalExtractZip");
+  if (btnModalExtractZip) {
+    btnModalExtractZip.addEventListener("click", () => executeSplitExtract("zip", false));
+  }
+
+  if (btnBurstZip) {
+    btnBurstZip.addEventListener("click", async () => {
+      if (!state.docId) {
+        showToast("No active document loaded.", "error");
+        return;
+      }
+      setLoading(true, "Bursting all pages to ZIP...");
+      try {
+        const res = await fetch(`/api/document/${state.docId}/burst`);
+        if (!res.ok) throw new Error("Burst failed");
+        const blob = await res.blob();
+        downloadBlob(blob, `burst_${state.filename || "document"}.zip`);
+        showToast("Burst ZIP downloaded successfully!", "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    });
+  }
 
   // ==========================================================================
   // B4. Merge PDFs - Visual Organizer & Interactive Reorder Engine
@@ -6342,6 +6858,9 @@ function populateThumbnails() {
     wrapper.appendChild(num);
     previewList.appendChild(wrapper);
   }
+  if (typeof renderSplitViews === "function") {
+    renderSplitViews();
+  }
 }
 
 function syncActiveThumbnail(pageNumber) {
@@ -6481,6 +7000,7 @@ const COMMANDS = [
   { name: "Duplicate Current Page", category: "Pages", action: () => duplicateCurrentPage() },
   { name: "Insert Blank Page", category: "Pages", action: () => document.querySelector('[data-tab="tab-organize"]').click() },
   { name: "Split & Extract Pages", category: "Pages", action: () => document.querySelector('[data-tab="tab-split"]').click() },
+  { name: "Visual Split Studio (Page Picker)", category: "Pages", action: () => window.openSplitModal() },
   { name: "Merge Multiple PDFs", category: "Pages", action: () => document.querySelector('[data-tab="tab-merge"]').click() },
   { name: "Visual Merge Studio (Organizer)", category: "Pages", action: () => window.openMergeModal() },
   { name: "Redact Sensitive Text", category: "Security", action: () => document.querySelector('[data-tab="tab-redact"]').click() },

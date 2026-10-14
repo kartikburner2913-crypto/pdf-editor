@@ -147,10 +147,9 @@
 **State:** PASS (October 2026)
 **Features:** Interactive drag-and-drop file list and grid reorder UI, PyMuPDF-generated first-page thumbnails, accessible Move Up/Down/Left/Right controls, 90° rotation per file, incremental "Add More Files" and "+ Add Active PDF", quick zoom preview modal, live page and size summaries, custom output filename, and dual completion paths ("Merge & Download" and "Merge & Open in Studio").
 
-### B5. Split PDF — No Visual Page Picker
-**Current State:** User types page ranges as text ("1-3, 5").
-**Gap:** SmallPDF shows page thumbnails and lets users click to select which pages to extract.
-**Upgrade:** Add visual page thumbnail grid with checkboxes for split page selection.
+### B5. Split PDF — Visual Page Picker & Studio Grid [COMPLETE]
+**State:** PASS (October 2026)
+**Features:** Interactive thumbnail cards grid with checkboxes in both sidebar and dedicated Visual Studio modal (`#splitStudioModal`), bidirectional live synchronization between card checkboxes and range text input (`#splitRangeInput`), shift-click range selection, selection shortcuts (`All`, `None`, `Odd`, `Even`, `Invert`), dual extraction output modes ("Extract into 1 PDF" and "Extract to ZIP Archive" per selected page), custom output filenames with auto-extension handling, direct "Extract & Open in Studio" workflow, and burst-to-zip archive capability.
 
 ### B6. PDF Upload — No Drag-and-Drop from Cloud
 **Current State:** Only local file upload supported.
@@ -519,7 +518,7 @@ Add page thumbnail grid with checkboxes. Users click to select pages instead of 
 | P0 | B3: Compression Visualization | 0.5 day | Medium — polish |
 | P1 | A10: eSign Workflow | 2 days | High — signature creation UI |
 | P1 | B4: Merge Reorder UI | 1 day | Medium — UX improvement |
-| P1 | B5: Split Page Picker | 1 day | Medium — UX improvement |
+| P1 | B5: Split Page Picker | 1 day | Medium — Implemented (PASS) |
 
 ### Phase 2 — Core Conversions (Week 2-3)
 | Priority | Feature | Effort | Impact |

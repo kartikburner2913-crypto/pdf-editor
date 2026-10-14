@@ -1417,6 +1417,59 @@ class PDFEngine:
             output_doc.close()
 
     @staticmethod
+    def extract_pages_to_zip(pdf_bytes: bytes, page_ranges_str: str, prefix: str = "extracted_page") -> bytes:
+        """
+        Extract specific pages into individual PDF files inside a ZIP archive.
+        Example: '1-3, 5' -> extracted_page_001.pdf, extracted_page_002.pdf, etc.
+        """
+        if not page_ranges_str or not page_ranges_str.strip():
+            raise ValueError("Page ranges string cannot be empty")
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        zip_buffer = io.BytesIO()
+        try:
+            total_pages = len(doc)
+            selected_indices = []
+
+            for part in page_ranges_str.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "-" in part:
+                    parts = part.split("-", 1)
+                    if len(parts) != 2 or not parts[0].strip().isdigit() or not parts[1].strip().isdigit():
+                        raise ValueError(f"Invalid range syntax: '{part}'")
+                    start = int(parts[0].strip())
+                    end = int(parts[1].strip())
+                    if start < 1 or end < start:
+                        raise ValueError(f"Invalid range boundaries: {start}-{end}")
+                    for p in range(start, end + 1):
+                        if 1 <= p <= total_pages and (p - 1) not in selected_indices:
+                            selected_indices.append(p - 1)
+                else:
+                    if not part.isdigit():
+                        raise ValueError(f"Invalid page number: '{part}'")
+                    p = int(part)
+                    if 1 <= p <= total_pages and (p - 1) not in selected_indices:
+                        selected_indices.append(p - 1)
+
+            if not selected_indices:
+                raise ValueError("No valid pages selected for extraction")
+
+            selected_indices.sort()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for idx in selected_indices:
+                    single_doc = fitz.open()
+                    single_doc.insert_pdf(doc, from_page=idx, to_page=idx)
+                    page_bytes = single_doc.tobytes(garbage=3, deflate=True)
+                    single_doc.close()
+                    zf.writestr(f"{prefix}_{idx + 1:03d}.pdf", page_bytes)
+
+            return zip_buffer.getvalue()
+        finally:
+            doc.close()
+
+    @staticmethod
     def burst_to_zip(pdf_bytes: bytes, prefix: str = "page") -> bytes:
         """Split PDF into individual pages and return as a ZIP archive."""
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")

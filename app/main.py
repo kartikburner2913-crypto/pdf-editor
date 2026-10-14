@@ -319,6 +319,7 @@ class OrganizeRequest(BaseModel):
 
 class SplitRequest(BaseModel):
     page_ranges: str  # e.g., "1-3, 5"
+    output_filename: Optional[str] = None
 
 
 class ProtectRequest(BaseModel):
@@ -872,15 +873,40 @@ async def split_pdf(doc_id: str, req: SplitRequest):
     doc = get_doc(doc_id)
     try:
         extracted_pdf = PDFEngine.split_and_extract(doc["current_bytes"], req.page_ranges)
+        if req.output_filename and req.output_filename.strip():
+            clean_out = req.output_filename.strip()
+            out_name = clean_out if clean_out.lower().endswith(".pdf") else f"{clean_out}.pdf"
+        else:
+            out_name = f"extracted_{doc['filename']}"
         return StreamingResponse(
             io.BytesIO(extracted_pdf),
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="extracted_{doc["filename"]}"'}
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"'}
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error splitting PDF: {str(e)}")
+
+
+@app.post("/api/document/{doc_id}/extract-zip")
+async def extract_pages_to_zip(doc_id: str, req: SplitRequest):
+    """Extract specified page range into individual PDF files inside a ZIP archive."""
+    if not req.page_ranges or not req.page_ranges.strip():
+        raise HTTPException(status_code=400, detail="Page ranges string cannot be empty.")
+    doc = get_doc(doc_id)
+    try:
+        zip_bytes = PDFEngine.extract_pages_to_zip(doc["current_bytes"], req.page_ranges, prefix="page")
+        base_name = os.path.splitext(doc["filename"])[0]
+        return StreamingResponse(
+            io.BytesIO(zip_bytes),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="extracted_pages_{base_name}.zip"'}
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error extracting pages to ZIP: {str(e)}")
 
 
 @app.get("/api/document/{doc_id}/burst")
