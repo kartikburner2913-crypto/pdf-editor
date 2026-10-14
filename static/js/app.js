@@ -1266,6 +1266,10 @@ function setupViewerControls() {
   const mainSidebar = document.getElementById("mainSidebar");
 
   function openMobileSidebar() {
+    const docNameEl = document.getElementById("mobileSidebarDocName");
+    if (docNameEl && state.filename) {
+      docNameEl.textContent = state.filename;
+    }
     if (mainSidebar) mainSidebar.classList.add("mobile-open");
     if (rightPreviewPanel) rightPreviewPanel.classList.remove("mobile-open");
     if (sidebarBackdrop) sidebarBackdrop.style.display = "block";

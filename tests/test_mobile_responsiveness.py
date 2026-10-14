@@ -98,3 +98,63 @@ class TestMobileResponsiveness:
         assert "btnNavMobileSidebar" in html
         assert "btnCloseMobileSidebar" in html
         assert "btnCloseMobilePreview" in html
+
+    def test_mobile_portrait_adaptation_elements_in_html(self):
+        with open("templates/index.html", "r", encoding="utf-8") as f:
+            html = f.read()
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 1. Navbar elements marked for mobile portrait collapse
+        btn_compare = soup.find(id="btnTopCompare")
+        assert btn_compare is not None
+        assert "hide-mobile-portrait" in btn_compare.get("class", [])
+
+        btn_reset = soup.find(id="btnReset")
+        assert btn_reset is not None
+        assert "hide-mobile-portrait" in btn_reset.get("class", [])
+
+        btn_new_doc = soup.find(id="btnNewDoc")
+        assert btn_new_doc is not None
+        assert "hide-mobile-portrait" in btn_new_doc.get("class", [])
+
+        # 2. Compact page indicator structure
+        page_indicator = soup.find(class_="page-indicator")
+        assert page_indicator is not None
+        assert page_indicator.find(class_="page-sep-compact") is not None
+        assert page_indicator.find(class_="page-label-text") is not None
+        assert soup.find(id="pageNumberInput") is not None
+        assert soup.find(id="totalPagesSpan") is not None
+
+        # 3. Zoom controls marked for small portrait collapse
+        btn_zoom_out = soup.find(id="btnZoomOut")
+        btn_zoom_in = soup.find(id="btnZoomIn")
+        assert btn_zoom_out is not None and "hide-mobile-portrait-sm" in btn_zoom_out.get("class", [])
+        assert btn_zoom_in is not None and "hide-mobile-portrait-sm" in btn_zoom_in.get("class", [])
+        assert soup.find(id="zoomSelect") is not None
+
+        # 4. Mobile sidebar document name element
+        assert soup.find(id="mobileSidebarDocName") is not None
+
+    def test_mobile_portrait_rules_in_style_css(self):
+        with open("static/css/style.css", "r", encoding="utf-8") as f:
+            css = f.read()
+
+        # Check portrait overflow prevention
+        assert "max-width: 100vw !important;" in css
+        assert "overflow-x: hidden !important;" in css
+
+        # Check portrait classes
+        assert ".hide-mobile-portrait" in css
+        assert ".hide-mobile-portrait-sm" in css
+        assert ".page-sep-compact" in css
+        assert ".sidebar-mobile-docname" in css
+
+        # Check off-canvas drawer visibility management
+        assert "visibility: hidden;" in css
+        assert "visibility: visible !important;" in css
+
+        # Check breakpoints
+        assert "@media (max-width: 480px)" in css
+        assert "@media (max-width: 380px)" in css
+

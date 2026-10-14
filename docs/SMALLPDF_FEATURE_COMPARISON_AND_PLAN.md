@@ -177,7 +177,13 @@
 - Off-canvas slide-out sidebar drawer with smooth cubic-bezier transitions, backdrop overlay (`#sidebarBackdrop`), mobile title bar, and close control (`#btnCloseMobileSidebar`).
 - Off-canvas right thumbnails drawer with dedicated mobile close trigger (`#btnCloseMobilePreview`) and backdrop dismissal.
 - Dedicated mobile tools toggle button (`#btnNavMobileSidebar` in top navbar and `#btnMobileSidebarToggle` in viewer toolbar).
-- Thumb-friendly bottom-docked viewer toolbar on mobile phones (`< 640px`) with glassmorphic styling, elevated shadow, and comfortable page navigation.
+- Thumb-friendly bottom-docked viewer toolbar on mobile phones (`< 640px`) with glassmorphic styling, elevated shadow, compact page counter (`1 / N`), and comfortable page navigation.
+- Dedicated Mobile Portrait Adaptation architecture eliminating horizontal screen overflow and clipping:
+  - Global viewport containment (`max-width: 100vw; overflow-x: hidden;`) preventing body drift or horizontal bounce.
+  - Navbar adaptation: collapses secondary actions (`#btnTopCompare`, `#btnReset`, `#btnNewDoc`) into portrait-hidden classes while keeping essential controls (`#btnNavMobileSidebar`, `#btnUndo`, `#btnRedo`, `#btnThemeToggle`, `#btnDownload`, `#btnNavToolsDirectory`) directly accessible within portrait screen bounds.
+  - Off-canvas drawer visibility management (`visibility: hidden` when closed, `visibility: visible` when open) preventing off-screen drawers from generating phantom scroll width in mobile browsers.
+  - Active document filename display inside the mobile sidebar header (`#mobileSidebarDocName`), keeping file context prominent without cluttering narrow portrait topbars.
+  - Form layout wrapping (`.form-row` column stacking on narrow portrait phones `< 480px`) preventing input squeeze in sidebar editing tabs.
 - Automatic full-width zoom scaling (`fit-width`) on mobile document load for instant text readability without manual zooming.
 - iOS Safari auto-zoom prevention with guaranteed 16px minimum font size on all text/number inputs, selects, and textareas.
 - Touch target sizing conforming to WCAG 2.1 AAA and Apple HIG (min 44px x 44px tap areas).

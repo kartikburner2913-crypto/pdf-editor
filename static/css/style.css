@@ -93,6 +93,11 @@
   padding: 0;
 }
 
+html {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-main);
@@ -102,6 +107,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  max-width: 100vw;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-width: 0;
@@ -6249,8 +6256,33 @@ textarea.form-overlay-widget {
   display: inherit;
 }
 
+.hide-mobile-portrait {
+  display: inherit;
+}
+
+.page-sep-compact {
+  display: none;
+}
+
 .sidebar-mobile-header {
   display: none;
+}
+
+.sidebar-mobile-docname {
+  display: inline-block;
+  max-width: 140px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 6px;
 }
 
 .sidebar-backdrop {
@@ -6371,12 +6403,15 @@ body.mobile-drawer-open {
     height: 100dvh;
     z-index: 90;
     transform: translateX(-100%);
-    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    visibility: hidden;
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.28s;
     box-shadow: none;
     background: var(--bg-sidebar);
+    box-sizing: border-box;
   }
   .sidebar.mobile-open {
     transform: translateX(0);
+    visibility: visible !important;
     box-shadow: 0 0 35px rgba(0, 0, 0, 0.45);
   }
   .sidebar-mobile-header {
@@ -6425,13 +6460,16 @@ body.mobile-drawer-open {
     height: 100dvh;
     z-index: 90;
     transform: translateX(100%);
-    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    visibility: hidden;
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.28s;
     box-shadow: none;
     border-left: 1px solid var(--border-color);
     background: var(--bg-sidebar);
+    box-sizing: border-box;
   }
   .right-preview-panel.mobile-open {
     transform: translateX(0) !important;
+    visibility: visible !important;
     display: flex !important;
     box-shadow: 0 0 35px rgba(0, 0, 0, 0.45);
   }
@@ -6555,6 +6593,20 @@ body.mobile-drawer-open {
    3. Mobile Phones & Portrait (max-width: 640px)
    -------------------------------------------------------------------------- */
 @media (max-width: 640px) {
+  /* Prevent horizontal bleed on portrait viewports */
+  html, body {
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+  .workspace {
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+  .viewer-container {
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
   /* Input Zoom Fix on iOS Safari */
   input[type="text"],
   input[type="number"],
@@ -6565,9 +6617,18 @@ body.mobile-drawer-open {
     font-size: 16px !important;
   }
 
+  /* Fully Adaptive Mobile Portrait Navbar */
   .navbar {
     height: 50px;
     padding: 0 8px;
+    gap: 4px;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .nav-brand {
+    gap: 6px;
+    flex-shrink: 0;
   }
   .brand-text h1 {
     font-size: 13.5px;
@@ -6575,11 +6636,58 @@ body.mobile-drawer-open {
   .logo-box {
     width: 28px;
     height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+  }
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+    justify-content: flex-end;
+  }
+  .hide-mobile-portrait {
+    display: none !important;
   }
   .doc-badge {
-    max-width: 90px;
-    font-size: 10.5px;
-    padding: 3px 6px;
+    max-width: 65px;
+    font-size: 10px;
+    padding: 2.5px 6px;
+  }
+  .btn-group-nav {
+    padding: 1px;
+    gap: 1px;
+    background: var(--bg-panel);
+  }
+  .btn-group-nav .btn-nav-icon {
+    padding: 4px 6px;
+    min-height: 32px;
+    min-width: 30px;
+  }
+  #btnNavMobileSidebar {
+    padding: 5px 8px;
+    min-height: 32px;
+    font-size: 11.5px;
+    gap: 4px;
+  }
+  #btnDownload {
+    padding: 5px 8px;
+    min-height: 32px;
+    min-width: 32px;
+  }
+  #btnNavToolsDirectory {
+    padding: 5px 7px;
+    min-height: 32px;
+    min-width: 30px;
+  }
+  #btnThemeToggle {
+    padding: 5px;
+    min-height: 32px;
+    min-width: 30px;
+    width: 32px;
+    height: 32px;
   }
 
   /* Thumb-Friendly Bottom Viewer Toolbar */
@@ -6593,37 +6701,114 @@ body.mobile-drawer-open {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 52px;
+    height: 50px;
     border-top: 1px solid var(--border-color);
     border-bottom: none;
     background: var(--glass-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
-    justify-content: space-around;
-    padding: 0 4px;
+    justify-content: space-between;
+    padding: 0 6px;
     z-index: 20;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow: hidden;
   }
   .canvas-viewport {
     order: 2;
     padding: 6px 3px 20px 3px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
   }
-  .page-controls,
+  .page-controls {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    gap: 2px;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .page-indicator {
+    font-size: 11.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 2px;
+    color: var(--text-main);
+  }
+  .page-indicator .page-label-text {
+    display: none !important;
+  }
+  .page-indicator .page-sep-compact {
+    display: inline-block !important;
+    margin: 0 1px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .page-indicator input {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+    text-align: center;
+    padding: 0 2px;
+  }
   .zoom-controls {
     background: transparent;
     border: none;
     box-shadow: none;
     padding: 0;
-    gap: 3px;
+    gap: 2px;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .zoom-select {
+    font-size: 11px;
+    padding: 2px 4px;
+    height: 32px;
+    max-width: 68px;
+    min-width: 58px;
+  }
+  .btn-icon {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 6px;
   }
   #btnFitWidth {
-    display: none;
+    display: none !important;
+  }
+
+  /* Floating Document Search Bar on Mobile */
+  .floating-search-bar {
+    position: absolute !important;
+    top: 6px !important;
+    left: 8px !important;
+    right: 8px !important;
+    max-width: calc(100vw - 16px) !important;
+    padding: 6px 8px !important;
+    box-sizing: border-box !important;
+    z-index: 35 !important;
+  }
+  .search-input-wrap {
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+  .search-input-wrap input {
+    width: 100% !important;
+    min-width: 0 !important;
   }
 
   /* Floating formatting toolbar on mobile */
   .wysiwyg-toolbar {
     position: fixed !important;
-    bottom: 54px !important;
+    bottom: 52px !important;
     left: 0 !important;
     right: 0 !important;
     top: auto !important;
@@ -6634,7 +6819,21 @@ body.mobile-drawer-open {
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15) !important;
     z-index: 100 !important;
     justify-content: flex-start !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none !important;
+  }
+  .wysiwyg-toolbar::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  /* Adaptive Sidebar Content */
+  .sidebar-content,
+  .tab-content-area {
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
   }
 
   /* Full-Screen Modals on Mobile Phones */
@@ -6703,27 +6902,54 @@ body.mobile-drawer-open {
 }
 
 /* --------------------------------------------------------------------------
-   4. Extra Small Screens (max-width: 380px)
+   4. Mobile Portrait & Narrow Phones (max-width: 480px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .hide-mobile-portrait-sm {
+    display: none !important;
+  }
+  .doc-badge {
+    display: none !important; /* File name is displayed in sidebar mobile header */
+  }
+  #btnNavMobileSidebar span {
+    display: none;
+  }
+  #btnNavMobileSidebar {
+    min-width: 32px;
+    padding: 5px;
+  }
+  .form-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   5. Extra Small Screens (max-width: 380px)
    -------------------------------------------------------------------------- */
 @media (max-width: 380px) {
-  .doc-badge {
-    max-width: 65px;
-  }
   .brand-text h1 {
-    font-size: 13px;
+    display: none;
   }
-  .zoom-select {
-    font-size: 11px;
-    padding: 2px 3px;
-  }
-  .page-indicator input {
-    width: 30px;
-    font-size: 11px;
+  .viewer-toolbar {
+    padding: 0 2px;
   }
   .btn-icon {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
-    min-height: 32px;
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 4px;
+  }
+  .zoom-select {
+    font-size: 10.5px;
+    padding: 2px 3px;
+    max-width: 62px;
+    min-width: 52px;
+  }
+  .page-indicator input {
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
   }
 }
