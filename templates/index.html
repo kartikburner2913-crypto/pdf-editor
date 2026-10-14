@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.9.14" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.15" />
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -35,6 +35,10 @@
     </div>
     
     <div class="nav-actions" id="topNavActions" style="display: none;">
+      <button id="btnNavMobileSidebar" class="btn btn-nav-icon mobile-only-inline" title="Open PDF Tools Sidebar" aria-label="Open Tools">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span>Tools</span>
+      </button>
       <span id="activeFilename" class="doc-badge" title="Active PDF">document.pdf</span>
 
       <div class="btn-group-nav">
@@ -689,6 +693,17 @@
     <section id="workspaceSection" class="workspace" style="display: none;">
       <!-- Categorized Sidebar -->
       <aside class="sidebar" id="mainSidebar">
+        <!-- Mobile Sidebar Header with Close Button -->
+        <div class="sidebar-mobile-header" id="sidebarMobileHeader">
+          <div class="sidebar-mobile-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            <span>PDF Tools &amp; Options</span>
+          </div>
+          <button type="button" id="btnCloseMobileSidebar" class="btn-icon-tiny" aria-label="Close Sidebar" title="Close Sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+
         <!-- Sidebar Navigation -->
         <nav class="sidebar-nav">
           <div class="nav-category">
@@ -2598,12 +2613,18 @@
           </div>
         </div>
       </aside>
+ 
+      <!-- Mobile Sidebar Backdrop Overlay -->
+      <div id="sidebarBackdrop" class="sidebar-backdrop" style="display: none;"></div>
 
       <!-- Center Viewer Area -->
       <section class="viewer-container">
         <!-- Floating Viewer Toolbar -->
         <div class="viewer-toolbar">
           <div class="page-controls">
+            <button id="btnMobileSidebarToggle" class="btn-icon mobile-only-inline" title="Open PDF Tools &amp; Options" aria-label="Open PDF Tools">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            </button>
             <button id="btnToggleThumbnails" class="btn-icon" title="Toggle Thumbnails Sidebar">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             </button>
@@ -2722,6 +2743,9 @@
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
               </svg>
+            </button>
+            <button id="btnCloseMobilePreview" class="panel-action-btn mobile-only-inline" title="Close Thumbnails" aria-label="Close Thumbnails">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
           </div>
         </div>
@@ -3239,6 +3263,6 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=2.10.11" defer></script>
+  <script src="/static/js/app.js?v=2.10.12" defer></script>
 </body>
 </html>

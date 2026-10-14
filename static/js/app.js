@@ -1257,12 +1257,118 @@ function selectBlockForEdit(block, divElement) {
 // ==========================================================================
 
 function setupViewerControls() {
-  if (btnToggleThumbnails) {
-    btnToggleThumbnails.addEventListener("click", () => {
-      if (rightPreviewPanel) rightPreviewPanel.classList.toggle("hidden");
-      if (rightPanelResizer) rightPanelResizer.classList.toggle("hidden");
+  // Mobile Responsiveness & Drawer Controllers
+  const btnMobileSidebarToggle = document.getElementById("btnMobileSidebarToggle");
+  const btnNavMobileSidebar = document.getElementById("btnNavMobileSidebar");
+  const btnCloseMobileSidebar = document.getElementById("btnCloseMobileSidebar");
+  const btnCloseMobilePreview = document.getElementById("btnCloseMobilePreview");
+  const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+  const mainSidebar = document.getElementById("mainSidebar");
+
+  function openMobileSidebar() {
+    if (mainSidebar) mainSidebar.classList.add("mobile-open");
+    if (rightPreviewPanel) rightPreviewPanel.classList.remove("mobile-open");
+    if (sidebarBackdrop) sidebarBackdrop.style.display = "block";
+    document.body.classList.add("mobile-drawer-open");
+  }
+
+  function closeMobileSidebar() {
+    if (mainSidebar) mainSidebar.classList.remove("mobile-open");
+    if (!rightPreviewPanel || !rightPreviewPanel.classList.contains("mobile-open")) {
+      if (sidebarBackdrop) sidebarBackdrop.style.display = "none";
+      document.body.classList.remove("mobile-drawer-open");
+    }
+  }
+
+  function openMobileThumbnails() {
+    if (rightPreviewPanel) {
+      rightPreviewPanel.classList.remove("hidden");
+      rightPreviewPanel.classList.add("mobile-open");
+    }
+    if (mainSidebar) mainSidebar.classList.remove("mobile-open");
+    if (sidebarBackdrop) sidebarBackdrop.style.display = "block";
+    document.body.classList.add("mobile-drawer-open");
+  }
+
+  function closeMobileThumbnails() {
+    if (rightPreviewPanel) rightPreviewPanel.classList.remove("mobile-open");
+    if (!mainSidebar || !mainSidebar.classList.contains("mobile-open")) {
+      if (sidebarBackdrop) sidebarBackdrop.style.display = "none";
+      document.body.classList.remove("mobile-drawer-open");
+    }
+  }
+
+  function closeAllMobileDrawers() {
+    closeMobileSidebar();
+    closeMobileThumbnails();
+  }
+
+  if (btnMobileSidebarToggle) {
+    btnMobileSidebarToggle.addEventListener("click", () => {
+      if (mainSidebar && mainSidebar.classList.contains("mobile-open")) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
+      }
     });
   }
+
+  if (btnNavMobileSidebar) {
+    btnNavMobileSidebar.addEventListener("click", () => {
+      if (mainSidebar && mainSidebar.classList.contains("mobile-open")) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
+      }
+    });
+  }
+
+  if (btnCloseMobileSidebar) {
+    btnCloseMobileSidebar.addEventListener("click", closeMobileSidebar);
+  }
+
+  if (btnCloseMobilePreview) {
+    btnCloseMobilePreview.addEventListener("click", closeMobileThumbnails);
+  }
+
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener("click", closeAllMobileDrawers);
+  }
+
+  // Thumbnails toggle (Responsive Drawer on mobile, toggle hidden on desktop)
+  if (btnToggleThumbnails) {
+    btnToggleThumbnails.addEventListener("click", () => {
+      if (window.innerWidth <= 899) {
+        if (rightPreviewPanel && rightPreviewPanel.classList.contains("mobile-open")) {
+          closeMobileThumbnails();
+        } else {
+          openMobileThumbnails();
+        }
+      } else {
+        if (rightPreviewPanel) rightPreviewPanel.classList.toggle("hidden");
+        if (rightPanelResizer) rightPanelResizer.classList.toggle("hidden");
+      }
+    });
+  }
+
+  // When clicking any thumbnail on mobile, close drawer so user sees canvas
+  if (previewList) {
+    previewList.addEventListener("click", (e) => {
+      if (window.innerWidth <= 899 && e.target.closest(".thumbnail-wrapper")) {
+        closeMobileThumbnails();
+      }
+    });
+  }
+
+  // Clean up mobile drawer states on window resize
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 899) {
+      if (mainSidebar) mainSidebar.classList.remove("mobile-open");
+      if (rightPreviewPanel) rightPreviewPanel.classList.remove("mobile-open");
+      if (sidebarBackdrop) sidebarBackdrop.style.display = "none";
+      document.body.classList.remove("mobile-drawer-open");
+    }
+  });
 
   setupResizer();
 
@@ -1430,14 +1536,17 @@ function calculateOptimalZoom(fitType = "fit-page") {
   const pHeight = state.pageHeightPt || 842;
   
   if (!viewport) return 1.0;
-  const availableW = Math.max(200, viewport.clientWidth - 48);
-  const availableH = Math.max(200, viewport.clientHeight - 48);
+  const isMobile = window.innerWidth <= 899;
+  const padW = isMobile ? 14 : 48;
+  const padH = isMobile ? 18 : 48;
+  const availableW = Math.max(200, viewport.clientWidth - padW);
+  const availableH = Math.max(200, viewport.clientHeight - padH);
 
   const scaleW = +(availableW / pWidth).toFixed(2);
   const scaleH = +(availableH / pHeight).toFixed(2);
 
-  if (fitType === "fit-width") {
-    return Math.max(0.4, Math.min(2.5, scaleW));
+  if (fitType === "fit-width" || (isMobile && fitType === "fit-page")) {
+    return Math.max(0.35, Math.min(2.5, scaleW));
   } else {
     // Fit entire page in viewport
     return Math.max(0.4, Math.min(2.0, Math.min(scaleW, scaleH)));

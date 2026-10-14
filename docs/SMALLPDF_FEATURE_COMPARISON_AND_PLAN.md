@@ -170,10 +170,20 @@
 **Gap:** SmallPDF offers "Save to Dropbox/Drive" after processing.
 **Upgrade:** Add cloud export buttons after download.
 
-### B8. Mobile Responsiveness
-**Current State:** App is primarily desktop-oriented.
-**Gap:** SmallPDF is fully responsive and mobile-first.
-**Upgrade:** Improve responsive breakpoints, touch targets, and mobile toolbar layout.
+### B8. Mobile Responsiveness [COMPLETE]
+**State:** PASS (October 2026)
+**Features:**
+- Complete responsive breakpoint architecture across 4 distinct device tiers: Large Tablets (1024px), Tablets & Small Laptops (899px), Mobile Phones (640px), and Ultra-Compact Screens (380px).
+- Off-canvas slide-out sidebar drawer with smooth cubic-bezier transitions, backdrop overlay (`#sidebarBackdrop`), mobile title bar, and close control (`#btnCloseMobileSidebar`).
+- Off-canvas right thumbnails drawer with dedicated mobile close trigger (`#btnCloseMobilePreview`) and backdrop dismissal.
+- Dedicated mobile tools toggle button (`#btnNavMobileSidebar` in top navbar and `#btnMobileSidebarToggle` in viewer toolbar).
+- Thumb-friendly bottom-docked viewer toolbar on mobile phones (`< 640px`) with glassmorphic styling, elevated shadow, and comfortable page navigation.
+- Automatic full-width zoom scaling (`fit-width`) on mobile document load for instant text readability without manual zooming.
+- iOS Safari auto-zoom prevention with guaranteed 16px minimum font size on all text/number inputs, selects, and textareas.
+- Touch target sizing conforming to WCAG 2.1 AAA and Apple HIG (min 44px x 44px tap areas).
+- Responsive full-screen and bottom-sheet modal layouts (`Merge`, `Split`, `Visual Crop`, `Unlock`, `Table Extraction`) with sticky headers, momentum scrolling (`-webkit-overflow-scrolling: touch`), and thumb-accessible primary action buttons.
+- Touch action pan-and-pinch-zoom support (`touch-action: pan-x pan-y pinch-zoom;`) with overscroll boundary containment.
+
 
 ### B9. Landing / Tool Selection Page [COMPLETE]
 **State:** PASS (October 2026)
