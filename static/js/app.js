@@ -10028,6 +10028,33 @@ function setupPdfCompressionFeature() {
   const btnDownloadResult = document.getElementById("btnDownloadCompressedPdf");
   const btnOpenInEditor = document.getElementById("btnOpenInEditor");
 
+  // Visual Before & After Comparison Elements
+  const compareSavingsText = document.getElementById("compareSavingsText");
+  const compressBarReductionLabel = document.getElementById("compressBarReductionLabel");
+  const compressBarCompressed = document.getElementById("compressBarCompressed");
+  const compressBarCompressedText = document.getElementById("compressBarCompressedText");
+  const compressBarSaved = document.getElementById("compressBarSaved");
+  const compressBarSavedText = document.getElementById("compressBarSavedText");
+  const metricCompressionMode = document.getElementById("metricCompressionMode");
+  const metricPageCount = document.getElementById("metricPageCount");
+  const btnCompressReset = document.getElementById("btnCompressReset");
+
+  function animateNumberCounter(elem, start, end, duration = 800, formatFn = null) {
+    if (!elem) return;
+    const startTime = performance.now();
+    function tick(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(start + (end - start) * ease);
+      elem.textContent = formatFn ? formatFn(current) : current;
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
   const errorBanner = document.getElementById("compressErrorBanner");
   const errorMessage = document.getElementById("compressErrorMessage");
 
@@ -10184,6 +10211,7 @@ function setupPdfCompressionFeature() {
     if (buttonLabel) {
       buttonLabel.textContent = "Compress Uploaded PDF";
     }
+    if (resultsCard) resultsCard.style.display = "none";
     hideError();
   }
 
@@ -10265,14 +10293,68 @@ function setupPdfCompressionFeature() {
           if (progressContainer) progressContainer.style.display = "none";
           if (resultsCard) resultsCard.style.display = "block";
 
-          const savings = data.savings_percent || 0;
-          if (savingsBadge) {
-            savingsBadge.textContent = `-${savings}%`;
+          const origSize = data.original_size || 0;
+          const compSize = data.compressed_size || data.new_size || 0;
+          const savings = Math.max(0, Math.min(100, Math.round(data.savings_percent || 0)));
+          const compressedPct = origSize > 0 ? Math.max(1, Math.min(100, Math.round((compSize / origSize) * 100))) : (100 - savings);
+          const savedPct = Math.max(0, 100 - compressedPct);
+
+          // Animated number count-up for badge and comparative flow arrow
+          animateNumberCounter(savingsBadge, 0, savings, 900, (v) => `-${v}%`);
+          if (compareSavingsText) {
+            animateNumberCounter(compareSavingsText, 0, savings, 900, (v) => `-${v}%`);
           }
-          if (metricOrig) metricOrig.textContent = formatBytes(data.original_size);
-          if (metricComp) metricComp.textContent = formatBytes(data.compressed_size || data.new_size);
-          if (metricSaved) metricSaved.textContent = formatBytes(data.bytes_saved || Math.max(0, data.original_size - (data.compressed_size || data.new_size)));
+
+          if (metricOrig) metricOrig.textContent = formatBytes(origSize);
+          if (metricComp) metricComp.textContent = formatBytes(compSize);
+          if (metricSaved) metricSaved.textContent = formatBytes(data.bytes_saved || Math.max(0, origSize - compSize));
           if (metricImages) metricImages.textContent = data.images_optimized !== undefined ? data.images_optimized : "0";
+
+          if (metricCompressionMode) {
+            const rawPreset = data.preset || compressState.preset || "recommended";
+            const presetCap = rawPreset.charAt(0).toUpperCase() + rawPreset.slice(1);
+            const modeName = (data.mode || compressState.mode) === "lossless"
+              ? "Lossless"
+              : `Lossy (${presetCap})`;
+            metricCompressionMode.textContent = modeName;
+          }
+
+          if (metricPageCount) {
+            const pages = data.page_count || 1;
+            metricPageCount.textContent = `${pages} ${pages === 1 ? "Page" : "Pages"}`;
+          }
+
+          if (compressBarReductionLabel) {
+            compressBarReductionLabel.textContent = `${compressedPct}% of original size`;
+          }
+
+          // Initial reset before triggering bar animation
+          if (compressBarCompressed) {
+            compressBarCompressed.style.width = "100%";
+            if (compressBarCompressedText) compressBarCompressedText.textContent = "100%";
+          }
+          if (compressBarSaved) {
+            compressBarSaved.style.width = "0%";
+            if (compressBarSavedText) compressBarSavedText.textContent = "";
+          }
+
+          // Trigger smooth animated transition on next frame
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              if (compressBarCompressed) {
+                compressBarCompressed.style.width = `${compressedPct}%`;
+                if (compressBarCompressedText) {
+                  compressBarCompressedText.textContent = `${compressedPct}%`;
+                }
+              }
+              if (compressBarSaved) {
+                compressBarSaved.style.width = `${savedPct}%`;
+                if (compressBarSavedText) {
+                  compressBarSavedText.textContent = savedPct >= 10 ? `-${savedPct}% Saved` : (savedPct > 0 ? `-${savedPct}%` : "");
+                }
+              }
+            }, 60);
+          });
 
           if (btnOpenInEditor) {
             if (compressState.uploadedFile && data.doc_id) {
@@ -10327,6 +10409,32 @@ function setupPdfCompressionFeature() {
       link.click();
       document.body.removeChild(link);
       showToast("Download started!", "success");
+    });
+  }
+
+  // Compress Another / Reset Button Handler
+  if (btnCompressReset) {
+    btnCompressReset.addEventListener("click", () => {
+      if (resultsCard) resultsCard.style.display = "none";
+      if (progressContainer) progressContainer.style.display = "none";
+      compressState.uploadedFile = null;
+      compressState.lastResult = null;
+      if (fileInput) fileInput.value = "";
+      if (selectedFileName) {
+        selectedFileName.textContent = "Compress current editor document or drop new PDF";
+      }
+      if (buttonLabel) {
+        buttonLabel.textContent = "Compress Document";
+      }
+      if (compressBarCompressed) {
+        compressBarCompressed.style.width = "100%";
+        if (compressBarCompressedText) compressBarCompressedText.textContent = "100%";
+      }
+      if (compressBarSaved) {
+        compressBarSaved.style.width = "0%";
+        if (compressBarSavedText) compressBarSavedText.textContent = "";
+      }
+      hideError();
     });
   }
 }
