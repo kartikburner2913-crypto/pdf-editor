@@ -47,7 +47,8 @@ const state = {
   pageBundleCache: new Map(),
   docVersion: 1,
   pendingTargetTab: null,
-  pendingSubAction: null
+  pendingSubAction: null,
+  shapesSubMode: "shapes"
 };
 
 let activeTransformBox = null;
@@ -336,6 +337,11 @@ function setupTabs() {
       }
       if (targetId !== "tab-shapes") {
         cancelMeasurement();
+      } else {
+        interactiveOverlay.style.cursor = "crosshair";
+        if (typeof window.setShapesSubMode === "function") {
+          window.setShapesSubMode(state.shapesSubMode || "shapes");
+        }
       }
       // Dynamic pointer-events syncing
       const isTextInteractive = targetId === "tab-edit" || targetId === "tab-add";
@@ -343,7 +349,7 @@ function setupTabs() {
       document.querySelectorAll(".text-block-highlight").forEach(el => el.style.pointerEvents = (isTextInteractive || (state.inspectMode && targetId !== "tab-annotate" && targetId !== "tab-redact")) ? "auto" : "none");
       document.querySelectorAll(".canvas-image-overlay").forEach(el => el.style.pointerEvents = (isImgInteractive || (state.inspectMode && targetId !== "tab-annotate" && targetId !== "tab-redact")) ? "auto" : "none");
 
-      if (targetId !== "tab-add" && targetId !== "tab-forms" && targetId !== "tab-annotate") {
+      if (targetId !== "tab-add" && targetId !== "tab-forms" && targetId !== "tab-annotate" && targetId !== "tab-shapes") {
         interactiveOverlay.style.cursor = "default";
       }
     });
@@ -464,9 +470,12 @@ async function handlePdfUpload(file, password = null) {
       setTimeout(() => {
         const tabBtn = document.querySelector(`.tab-btn[data-tab="${pendingTab}"]`);
         if (tabBtn) tabBtn.click();
-        if (pendingSub === "ruler") {
-          const rulerBtn = document.getElementById("btnToolMeasure") || document.getElementById("btnMeasureRuler");
-          if (rulerBtn) rulerBtn.click();
+        if (pendingTab === "tab-shapes") {
+          if (pendingSub === "ruler") {
+            if (typeof window.setShapesSubMode === "function") window.setShapesSubMode("ruler");
+          } else {
+            if (typeof window.setShapesSubMode === "function") window.setShapesSubMode("shapes");
+          }
         }
       }, 150);
     }
@@ -2019,7 +2028,7 @@ function setupCanvasDrawing() {
     }
 
     // Measurement tool handler
-    if (state.measureMode) {
+    if (state.measureMode && (state.activeTab !== "tab-shapes" || state.shapesSubMode === "ruler")) {
       const rect = interactiveOverlay.getBoundingClientRect();
       const scaleX = state.pageWidthPt / rect.width;
       const scaleY = state.pageHeightPt / rect.height;
@@ -7188,7 +7197,13 @@ function setupKeyboardShortcuts() {
       if (activeTransformBox) cancelTransformBox(false);
       if (activeWysiwygBox) cancelWysiwyg();
       closeSearchBar();
-      cancelMeasurement();
+      if (state.activeTab === "tab-shapes" && state.shapesSubMode === "ruler") {
+        if (typeof window.setShapesSubMode === "function") {
+          window.setShapesSubMode("shapes");
+        }
+      } else {
+        cancelMeasurement();
+      }
       deselectFormField();
       if (state.isVisualCropping) {
         cancelVisualCrop();
@@ -8431,51 +8446,146 @@ function setupFormatConversions() {
 }
 
 // --------------------------------------------------------------------------
-// 6. Measurement Tools (Distance & Area)
+// 6. Shapes Sub-Mode (Add Shapes vs Ruler/Polygon) & Measurement Tools
 // --------------------------------------------------------------------------
+
+window.setShapesSubMode = function(mode, subType = null) {
+  state.shapesSubMode = mode;
+  const btnModeAddShapes = document.getElementById("btnModeAddShapes");
+  const btnModeMeasureRuler = document.getElementById("btnModeMeasureRuler");
+  const shapesDrawSection = document.getElementById("shapesDrawSection");
+  const shapesMeasureSection = document.getElementById("shapesMeasureSection");
+  const btnMeasureDistance = document.getElementById("btnMeasureDistance");
+  const btnMeasureArea = document.getElementById("btnMeasureArea");
+
+  if (mode === "shapes") {
+    cancelMeasurement();
+    if (btnModeAddShapes) btnModeAddShapes.classList.add("active");
+    if (btnModeMeasureRuler) btnModeMeasureRuler.classList.remove("active");
+    if (shapesDrawSection) shapesDrawSection.style.display = "block";
+    if (shapesMeasureSection) shapesMeasureSection.style.display = "none";
+    if (state.activeTab === "tab-shapes") {
+      interactiveOverlay.style.cursor = "crosshair";
+    }
+  } else if (mode === "ruler") {
+    document.querySelectorAll(".shape-preview-box").forEach(b => b.remove());
+    if (btnModeAddShapes) btnModeAddShapes.classList.remove("active");
+    if (btnModeMeasureRuler) btnModeMeasureRuler.classList.add("active");
+    if (shapesDrawSection) shapesDrawSection.style.display = "none";
+    if (shapesMeasureSection) shapesMeasureSection.style.display = "block";
+
+    const targetType = subType || (btnMeasureArea && btnMeasureArea.classList.contains("active") ? "area" : "distance");
+    activateMeasurementTool(targetType);
+    if (state.activeTab === "tab-shapes") {
+      interactiveOverlay.style.cursor = "crosshair";
+    }
+  }
+};
+
+function activateMeasurementTool(type) {
+  state.measureMode = type;
+  state.measurePoints = [];
+  document.querySelectorAll(".measurement-badge, .measurement-svg-layer").forEach(el => el.remove());
+
+  const btnMeasureDistance = document.getElementById("btnMeasureDistance");
+  const btnMeasureArea = document.getElementById("btnMeasureArea");
+  const measureModeLabel = document.getElementById("measureModeLabel");
+  const measureValueLabel = document.getElementById("measureValueLabel");
+
+  if (type === "distance") {
+    if (btnMeasureDistance) btnMeasureDistance.classList.add("active");
+    if (btnMeasureArea) btnMeasureArea.classList.remove("active");
+    if (measureModeLabel) measureModeLabel.textContent = "Distance Ruler (2 points)";
+    if (measureValueLabel) measureValueLabel.textContent = "Click Point 1 on PDF...";
+  } else if (type === "area") {
+    if (btnMeasureArea) btnMeasureArea.classList.add("active");
+    if (btnMeasureDistance) btnMeasureDistance.classList.remove("active");
+    if (measureModeLabel) measureModeLabel.textContent = "Area Polygon (Click points)";
+    if (measureValueLabel) measureValueLabel.textContent = "Click points on PDF (Click point 1 to close)...";
+  }
+}
+
+function cancelMeasurement() {
+  state.measureMode = null;
+  state.measurePoints = [];
+  document.querySelectorAll(".measure-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".measurement-badge, .measurement-svg-layer").forEach(el => el.remove());
+}
+
 function setupMeasurementTools() {
   const btnMeasureDistance = document.getElementById("btnMeasureDistance");
   const btnMeasureArea = document.getElementById("btnMeasureArea");
   const measureUnitSelect = document.getElementById("measureUnit");
   const measureScaleInput = document.getElementById("measureScale");
-  const measureReadoutCard = document.getElementById("measureReadoutCard");
-  const measureModeLabel = document.getElementById("measureModeLabel");
-  const measureValueLabel = document.getElementById("measureValueLabel");
   const btnCancelMeasure = document.getElementById("btnCancelMeasure");
+  const btnClearCurrentMeasure = document.getElementById("btnClearCurrentMeasure");
+  const btnModeAddShapes = document.getElementById("btnModeAddShapes");
+  const btnModeMeasureRuler = document.getElementById("btnModeMeasureRuler");
+  const shapesDrawSection = document.getElementById("shapesDrawSection");
 
+  // Mode switcher tabs
+  if (btnModeAddShapes) {
+    btnModeAddShapes.addEventListener("click", () => {
+      window.setShapesSubMode("shapes");
+      showToast("Switched to Add Shapes mode. Drag on canvas to draw.", "info");
+    });
+  }
+
+  if (btnModeMeasureRuler) {
+    btnModeMeasureRuler.addEventListener("click", () => {
+      window.setShapesSubMode("ruler");
+      showToast("Switched to Ruler & Polygon mode. Click on canvas to measure.", "info");
+    });
+  }
+
+  // Auto-switch to Add Shapes if user focuses or clicks inside shape drawing panel
+  if (shapesDrawSection) {
+    shapesDrawSection.addEventListener("click", (e) => {
+      if (state.shapesSubMode !== "shapes" && !e.target.closest("#btnApplyShape")) {
+        window.setShapesSubMode("shapes");
+      }
+    });
+    ["shapeType", "shapeColor", "shapeFill", "shapeWidth", "shapeStartX", "shapeStartY", "shapeEndX", "shapeEndY"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener("focus", () => {
+          if (state.shapesSubMode !== "shapes") window.setShapesSubMode("shapes");
+        });
+      }
+    });
+  }
+
+  // Distance vs Area tools inside Ruler mode
   if (btnMeasureDistance) {
     btnMeasureDistance.addEventListener("click", () => {
-      toggleMeasureMode("distance");
+      window.setShapesSubMode("ruler", "distance");
+      showToast("Distance Ruler activated. Click 2 points on page.", "info");
     });
   }
 
   if (btnMeasureArea) {
     btnMeasureArea.addEventListener("click", () => {
-      toggleMeasureMode("area");
+      window.setShapesSubMode("ruler", "area");
+      showToast("Polygon Area activated. Click points on page.", "info");
     });
   }
 
+  // Switch back to Add Shapes from readout card
   if (btnCancelMeasure) {
     btnCancelMeasure.addEventListener("click", () => {
-      cancelMeasurement();
+      window.setShapesSubMode("shapes");
+      showToast("Switched back to Add Shapes mode.", "info");
     });
   }
 
-  function toggleMeasureMode(mode) {
-    if (state.measureMode === mode) {
-      cancelMeasurement();
-      return;
-    }
-    state.measureMode = mode;
-    state.measurePoints = [];
-    document.querySelectorAll(".measure-btn").forEach(b => b.classList.remove("active"));
-    if (mode === "distance") btnMeasureDistance.classList.add("active");
-    if (mode === "area") btnMeasureArea.classList.add("active");
-    
-    measureReadoutCard.style.display = "block";
-    measureModeLabel.textContent = mode === "distance" ? "Distance (2 points)" : "Area Polygon (Click points)";
-    measureValueLabel.textContent = mode === "distance" ? "Click Point 1 on PDF..." : "Click points on PDF (Click point 1 to close)...";
-    showToast(`Activated ${mode} measurement. Click on page.`, "info");
+  // Clear current points to take a new measurement
+  if (btnClearCurrentMeasure) {
+    btnClearCurrentMeasure.addEventListener("click", () => {
+      state.measurePoints = [];
+      document.querySelectorAll(".measurement-badge, .measurement-svg-layer").forEach(el => el.remove());
+      activateMeasurementTool(state.measureMode || "distance");
+      showToast("Measurement points cleared.", "info");
+    });
   }
 
   if (measureUnitSelect) {
@@ -8491,15 +8601,6 @@ function setupMeasurementTools() {
       updateMeasurementReadout();
     });
   }
-}
-
-function cancelMeasurement() {
-  state.measureMode = null;
-  state.measurePoints = [];
-  document.querySelectorAll(".measure-btn").forEach(b => b.classList.remove("active"));
-  const card = document.getElementById("measureReadoutCard");
-  if (card) card.style.display = "none";
-  document.querySelectorAll(".measurement-badge, .measurement-svg-layer").forEach(el => el.remove());
 }
 
 function handleMeasurementClick(pt) {
@@ -9684,9 +9785,12 @@ async function submitPasswordPrompt() {
       setTimeout(() => {
         const tabBtn = document.querySelector(`.tab-btn[data-tab="${pendingTab}"]`);
         if (tabBtn) tabBtn.click();
-        if (pendingSub === "ruler") {
-          const rulerBtn = document.getElementById("btnToolMeasure") || document.getElementById("btnMeasureRuler");
-          if (rulerBtn) rulerBtn.click();
+        if (pendingTab === "tab-shapes") {
+          if (pendingSub === "ruler") {
+            if (typeof window.setShapesSubMode === "function") window.setShapesSubMode("ruler");
+          } else {
+            if (typeof window.setShapesSubMode === "function") window.setShapesSubMode("shapes");
+          }
         }
       }, 150);
     }
@@ -9756,9 +9860,12 @@ window.launchLandingTool = function(targetTab, subAction) {
     window.returnToWorkspace();
     const tabBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
     if (tabBtn) tabBtn.click();
-    if (subAction === "ruler") {
-      const rulerBtn = document.getElementById("btnToolMeasure") || document.getElementById("btnMeasureRuler");
-      if (rulerBtn) rulerBtn.click();
+    if (targetTab === "tab-shapes") {
+      if (subAction === "ruler") {
+        if (typeof window.setShapesSubMode === "function") window.setShapesSubMode("ruler");
+      } else {
+        if (typeof window.setShapesSubMode === "function") window.setShapesSubMode("shapes");
+      }
     }
   } else {
     // If no document is open, store target tab and prompt file picker

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.9.11" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.12" />
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -1071,106 +1071,133 @@
             <button id="btnInsertImageSubmit" class="btn btn-primary btn-block">
               <span>Insert Image at Coordinates</span>
             </button>
-          </div>
-
-          <!-- 4. SHAPES & VECTORS -->
+          </div>          <!-- 4. SHAPES & VECTORS -->
           <div id="tab-shapes" class="tab-pane">
             <div class="pane-header">
-              <h3>Draw Shapes</h3>
-              <p class="help-text">Click and drag on the document canvas to draw rectangles, circles, or lines.</p>
+              <h3>Shapes &amp; Measurements</h3>
+              <p class="help-text">Choose a tool mode: draw vector shapes or measure blueprint dimensions &amp; areas.</p>
             </div>
 
-            <div class="form-group">
-              <label for="shapeType">Shape Type:</label>
-              <select id="shapeType" class="form-control">
-                <option value="rect">Rectangle / Box</option>
-                <option value="circle">Circle / Oval</option>
-                <option value="line">Straight Line</option>
-              </select>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group col">
-                <label for="shapeColor">Border Color:</label>
-                <input type="color" id="shapeColor" value="#2563eb" class="form-control color-picker" />
-              </div>
-              <div class="form-group col">
-                <label for="shapeFill">Fill Color:</label>
-                <input type="color" id="shapeFill" value="#ffffff" class="form-control color-picker" />
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="shapeWidth">Border Width (px):</label>
-              <input type="number" id="shapeWidth" value="2" min="1" max="20" class="form-control" />
-            </div>
-
-            <div class="form-row">
-              <div class="form-group col">
-                <label>X1, Y1:</label>
-                <div style="display:flex; gap:4px;">
-                  <input type="number" id="shapeStartX" placeholder="X1" class="form-control" />
-                  <input type="number" id="shapeStartY" placeholder="Y1" class="form-control" />
-                </div>
-              </div>
-              <div class="form-group col">
-                <label>X2, Y2:</label>
-                <div style="display:flex; gap:4px;">
-                  <input type="number" id="shapeEndX" placeholder="X2" class="form-control" />
-                  <input type="number" id="shapeEndY" placeholder="Y2" class="form-control" />
-                </div>
-              </div>
-            </div>
-
-            <button id="btnApplyShape" class="btn btn-primary btn-block">
-              <span>Add Shape to Page</span>
-            </button>
-
-            <hr class="divider" />
-            <h4>Measurement Tools</h4>
-            <p class="help-text">Measure point-to-point distances, perimeters, and polygon areas with custom scale calibration.</p>
-            
-            <div class="button-grid">
-              <button id="btnMeasureDistance" class="btn btn-secondary measure-btn" data-mode="distance" title="Measure Distance / Ruler">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.3 15.3l-6.6-6.6a1 1 0 0 0-1.4 0l-1.6 1.6-1.4-1.4 1.4-1.4-1.4-1.4-1.4 1.4-1.4-1.4 1.4-1.4-1.4-1.4-1.6 1.6a1 1 0 0 0 0 1.4l6.6 6.6a1 1 0 0 0 1.4 0l8-8a1 1 0 0 0 0-1.4z"/></svg>
-                <span>Distance Ruler</span>
+            <!-- Segmented Mode Chooser -->
+            <div class="shapes-mode-toggle" id="shapesModeSelector" role="tablist">
+              <button type="button" class="shapes-mode-btn active" id="btnModeAddShapes" data-shapes-mode="shapes" title="Draw vector shapes on canvas">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 22 22 22"></polygon></svg>
+                <span>Add Shapes</span>
               </button>
-              <button id="btnMeasureArea" class="btn btn-secondary measure-btn" data-mode="area" title="Measure Polygon Area &amp; Perimeter">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 22 22 22"/></svg>
-                <span>Area / Polygon</span>
+              <button type="button" class="shapes-mode-btn" id="btnModeMeasureRuler" data-shapes-mode="ruler" title="Measure distance ruler &amp; polygon area">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20"></path><path d="M6 8v8"></path><path d="M10 9v6"></path><path d="M14 9v6"></path><path d="M18 8v8"></path></svg>
+                <span>Ruler / Polygon</span>
               </button>
             </div>
 
-            <div class="form-row" style="margin-top: 8px;">
-              <div class="form-group col">
-                <label for="measureUnit">Unit:</label>
-                <select id="measureUnit" class="form-control">
-                  <option value="pt">Points (pt)</option>
-                  <option value="in" selected>Inches (in)</option>
-                  <option value="mm">Millimeters (mm)</option>
-                  <option value="cm">Centimeters (cm)</option>
-                  <option value="ft">Feet (ft)</option>
-                  <option value="m">Meters (m)</option>
+            <!-- Panel 1: Add Shapes Sub-Mode -->
+            <div id="shapesDrawSection" class="shapes-sub-section">
+              <div class="form-group" style="margin-top: 10px;">
+                <label for="shapeType">Shape Type:</label>
+                <select id="shapeType" class="form-control">
+                  <option value="rect">Rectangle / Box</option>
+                  <option value="circle">Circle / Oval</option>
+                  <option value="line">Straight Line</option>
                 </select>
               </div>
-              <div class="form-group col">
-                <label for="measureScale">Scale (1 in = ?):</label>
-                <input type="number" id="measureScale" value="1.0" step="0.1" min="0.01" class="form-control" />
+
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="shapeColor">Border Color:</label>
+                  <input type="color" id="shapeColor" value="#2563eb" class="form-control color-picker" />
+                </div>
+                <div class="form-group col">
+                  <label for="shapeFill">Fill Color:</label>
+                  <input type="color" id="shapeFill" value="#ffffff" class="form-control color-picker" />
+                </div>
               </div>
+
+              <div class="form-group">
+                <label for="shapeWidth">Border Width (px):</label>
+                <input type="number" id="shapeWidth" value="2" min="1" max="20" class="form-control" />
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col">
+                  <label>X1, Y1:</label>
+                  <div style="display:flex; gap:4px;">
+                    <input type="number" id="shapeStartX" placeholder="X1" class="form-control" />
+                    <input type="number" id="shapeStartY" placeholder="Y1" class="form-control" />
+                  </div>
+                </div>
+                <div class="form-group col">
+                  <label>X2, Y2:</label>
+                  <div style="display:flex; gap:4px;">
+                    <input type="number" id="shapeEndX" placeholder="X2" class="form-control" />
+                    <input type="number" id="shapeEndY" placeholder="Y2" class="form-control" />
+                  </div>
+                </div>
+              </div>
+
+              <p class="help-text" style="margin-bottom: 10px;">
+                Click and drag directly on the PDF canvas to position and resize the shape.
+              </p>
+
+              <button type="button" id="btnApplyShape" class="btn btn-primary btn-block">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add Shape to Page</span>
+              </button>
             </div>
 
-            <div id="measureReadoutCard" class="measure-readout-card" style="display: none;">
-              <div class="readout-row">
-                <span>Mode:</span>
-                <strong id="measureModeLabel">Distance</strong>
+            <!-- Panel 2: Measurement Tools Sub-Mode -->
+            <div id="shapesMeasureSection" class="shapes-sub-section" style="display: none;">
+              <p class="help-text" style="margin-top: 10px; margin-bottom: 10px;">
+                Choose Distance Ruler or Area Polygon, then click points on the document canvas to measure.
+              </p>
+              
+              <div class="button-grid">
+                <button type="button" id="btnMeasureDistance" class="btn btn-secondary measure-btn active" data-mode="distance" title="Measure Distance / Ruler">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.3 15.3l-6.6-6.6a1 1 0 0 0-1.4 0l-1.6 1.6-1.4-1.4 1.4-1.4-1.4-1.4 1.4-1.4-1.4-1.4 1.4-1.4-1.4-1.4-1.6 1.6a1 1 0 0 0 0 1.4l6.6 6.6a1 1 0 0 0 1.4 0l8-8a1 1 0 0 0 0-1.4z"/></svg>
+                  <span>Distance Ruler</span>
+                </button>
+                <button type="button" id="btnMeasureArea" class="btn btn-secondary measure-btn" data-mode="area" title="Measure Polygon Area &amp; Perimeter">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 22 22 22"/></svg>
+                  <span>Area / Polygon</span>
+                </button>
               </div>
-              <div class="readout-row">
-                <span>Measurement:</span>
-                <strong id="measureValueLabel" class="measure-val-highlight">0.00 in</strong>
+
+              <div class="form-row" style="margin-top: 10px;">
+                <div class="form-group col">
+                  <label for="measureUnit">Unit:</label>
+                  <select id="measureUnit" class="form-control">
+                    <option value="pt">Points (pt)</option>
+                    <option value="in" selected>Inches (in)</option>
+                    <option value="mm">Millimeters (mm)</option>
+                    <option value="cm">Centimeters (cm)</option>
+                    <option value="ft">Feet (ft)</option>
+                    <option value="m">Meters (m)</option>
+                  </select>
+                </div>
+                <div class="form-group col">
+                  <label for="measureScale">Scale (1 in = ?):</label>
+                  <input type="number" id="measureScale" value="1.0" step="0.1" min="0.01" class="form-control" />
+                </div>
               </div>
-              <button id="btnCancelMeasure" class="btn btn-outline btn-block btn-sm" style="margin-top: 6px;">
-                <span>Cancel / Done (Esc)</span>
-              </button>
+
+              <div id="measureReadoutCard" class="measure-readout-card">
+                <div class="readout-row">
+                  <span>Active Tool:</span>
+                  <strong id="measureModeLabel">Distance Ruler (2 points)</strong>
+                </div>
+                <div class="readout-row">
+                  <span>Measurement:</span>
+                  <strong id="measureValueLabel" class="measure-val-highlight">Click Point 1 on PDF...</strong>
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                  <button type="button" id="btnClearCurrentMeasure" class="btn btn-secondary btn-sm" style="flex: 1;" title="Clear points and measure again">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                    <span>Clear Points</span>
+                  </button>
+                  <button type="button" id="btnCancelMeasure" class="btn btn-outline btn-sm" style="flex: 1;" title="Switch back to Add Shapes">
+                    <span>Back to Shapes</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3139,6 +3166,6 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=2.10.8" defer></script>
+  <script src="/static/js/app.js?v=2.10.9" defer></script>
 </body>
 </html>

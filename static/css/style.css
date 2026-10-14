@@ -3083,7 +3083,62 @@ textarea.form-overlay-widget {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* 6. Measurement Tool Readout & Canvas Badges */
+/* 6. Shapes & Measurements Segmented Sub-Mode Switcher */
+.shapes-mode-toggle {
+  display: flex;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 3px;
+  margin-bottom: 12px;
+}
+
+[data-theme="dark"] .shapes-mode-toggle {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.shapes-mode-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.shapes-mode-btn:hover {
+  color: var(--text-main);
+  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.04));
+}
+
+.shapes-mode-btn.active {
+  background: var(--bg-surface);
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] .shapes-mode-btn.active {
+  background: #1e293b;
+  color: #818cf8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.shapes-sub-section {
+  animation: fadeIn 0.15s ease-out;
+}
+
+/* Measurement Tool Readout & Canvas Badges */
 .measure-btn.active {
   background: var(--primary);
   color: #ffffff;
