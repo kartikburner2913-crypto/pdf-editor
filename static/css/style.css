@@ -7033,3 +7033,137 @@ body.mobile-drawer-open {
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.35));
 }
 
+/* ==========================================================================
+   Continuous Multi-Page Virtualized Canvas Viewport (Plan Q2)
+   ========================================================================== */
+
+.canvas-viewport.hand-tool-active {
+  cursor: grab !important;
+}
+
+.canvas-viewport.hand-tool-active * {
+  cursor: grab !important;
+}
+
+.canvas-viewport.hand-tool-panning,
+.canvas-viewport.hand-tool-panning * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+.continuous-pages-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 100%;
+  padding: 24px 0 60px 0;
+  gap: 18px;
+  box-sizing: border-box;
+}
+
+.page-slot {
+  position: relative;
+  box-sizing: border-box;
+  background-color: #ffffff;
+  border-radius: 4px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+  overflow: visible;
+  user-select: none;
+}
+
+.page-slot.active-slot {
+  box-shadow: 0 0 0 2px #0284c7, 0 8px 30px rgba(2, 132, 199, 0.25);
+}
+
+.page-slot-badge {
+  position: absolute;
+  top: -14px;
+  left: 14px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(6px);
+  color: #f8fafc;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 25;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.page-slot.active-slot .page-slot-badge {
+  background: #0284c7;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.page-slot-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  border-radius: 4px;
+}
+
+.page-slot-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  border-radius: 4px;
+  pointer-events: auto;
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.page-slot-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px dashed #cbd5e1;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.page-slot-skeleton-bar {
+  width: 50%;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  margin-top: 10px;
+  animation: pageSlotPulse 1.6s infinite ease-in-out;
+}
+
+@keyframes pageSlotPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.95; }
+}
+
+@media (max-width: 899px) {
+  .continuous-pages-container {
+    padding: 14px 0 36px 0;
+    gap: 14px;
+  }
+  .page-slot {
+    border-radius: 3px;
+  }
+  .page-slot-badge {
+    font-size: 10px;
+    padding: 1px 7px;
+    left: 8px;
+  }
+}
+
+

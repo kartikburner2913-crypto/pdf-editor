@@ -49,7 +49,11 @@ const state = {
   pendingTargetTab: null,
   pendingSubAction: null,
   shapesSubMode: "shapes",
-  smartSnappingEnabled: true
+  smartSnappingEnabled: true,
+  viewportLayout: "continuous",
+  isHandToolActive: false,
+  isSpacePanning: false,
+  continuousPageSlots: new Map()
 };
 
 let activeTransformBox = null;
@@ -106,6 +110,9 @@ const btnNextPage = document.getElementById("btnNextPage");
 const btnZoomIn = document.getElementById("btnZoomIn");
 const btnZoomOut = document.getElementById("btnZoomOut");
 const btnFitWidth = document.getElementById("btnFitWidth");
+const btnTogglePageLayout = document.getElementById("btnTogglePageLayout");
+const btnToggleHandTool = document.getElementById("btnToggleHandTool");
+const continuousPagesContainer = document.getElementById("continuousPagesContainer");
 
 // Search Elements
 const floatingSearchBar = document.getElementById("floatingSearchBar");
@@ -467,6 +474,9 @@ async function handlePdfUpload(file, password = null) {
     populateThumbnails();
     if (typeof renderSplitViews === "function") renderSplitViews();
     await loadPage(state.currentPage);
+    if (typeof initContinuousDocumentFlow === "function" && state.viewportLayout === "continuous") {
+      initContinuousDocumentFlow();
+    }
     updateSecurityTabUI();
     showToast("Document loaded into studio!", "success");
 
@@ -517,12 +527,13 @@ function updateUndoRedoButtons(canUndo, canRedo) {
 const MAX_BUNDLE_CACHE_SIZE = 25;
 
 async function fetchPageBundle(pageNumber) {
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const renderZoom = (typeof getEffectiveRenderZoom === "function") ? getEffectiveRenderZoom(state.zoom) : state.zoom;
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}_rz${renderZoom}`;
   if (state.pageBundleCache && state.pageBundleCache.has(cacheKey)) {
     return state.pageBundleCache.get(cacheKey);
   }
 
-  const res = await fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`);
+  const res = await fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${renderZoom}&v=${state.docVersion || 1}`);
   if (!res.ok) throw new Error(`Failed to load page ${pageNumber} bundle`);
   const bundle = await res.json();
   if (state.pageBundleCache) {
@@ -603,6 +614,13 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
 
     pdfPageImage.src = bundle.image_data_url;
 
+    if (bundle.width && bundle.height) {
+      const displayW = Math.round(bundle.width * state.zoom);
+      const displayH = Math.round(bundle.height * state.zoom);
+      pdfPageImage.style.width = `${displayW}px`;
+      pdfPageImage.style.height = `${displayH}px`;
+    }
+
     if (canvasWrapper) {
       canvasWrapper.style.minHeight = "";
       canvasWrapper.style.minWidth = "";
@@ -648,6 +666,11 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
       loadFormFields().catch(() => {});
     }
     if (state.isInkMode) syncInkCanvasSize();
+
+    if (state.viewportLayout === "continuous") {
+      if (typeof attachCanvasToPageSlot === "function") attachCanvasToPageSlot(pageNumber);
+      if (typeof updateVirtualization === "function") updateVirtualization();
+    }
 
     // Speculatively prefetch adjacent and secondary pages during idle time
     const prefetchTargets = [pageNumber + 1, pageNumber - 1, pageNumber + 2, pageNumber - 2];
@@ -700,7 +723,18 @@ async function applyMutationResponse(data, targetPage = state.currentPage) {
 async function loadPage(pageNumber, _opts = {}) {
   if (!state.docId) return;
 
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  if (state.viewportLayout === "continuous" && !_opts.skipScroll) {
+    if (typeof attachCanvasToPageSlot === "function") {
+      attachCanvasToPageSlot(pageNumber);
+    }
+    const slotInfo = state.continuousPageSlots?.get(pageNumber);
+    if (slotInfo && slotInfo.element) {
+      slotInfo.element.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
+  const renderZoom = (typeof getEffectiveRenderZoom === "function") ? getEffectiveRenderZoom(state.zoom) : state.zoom;
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}_rz${renderZoom}`;
   const isCached = state.pageBundleCache && state.pageBundleCache.has(cacheKey);
   if (!isCached) {
     setLoading(true, `Loading Page ${pageNumber}...`);
@@ -1382,12 +1416,24 @@ function setupViewerControls() {
   // Page navigation buttons
   if (btnPrevPage) {
     btnPrevPage.addEventListener("click", () => {
-      if (state.currentPage > 1) loadPage(state.currentPage - 1);
+      if (state.currentPage > 1) {
+        if (state.viewportLayout === "continuous" && typeof scrollToPageSlot === "function") {
+          scrollToPageSlot(state.currentPage - 1);
+        } else {
+          loadPage(state.currentPage - 1);
+        }
+      }
     });
   }
   if (btnNextPage) {
     btnNextPage.addEventListener("click", () => {
-      if (state.currentPage < state.totalPages) loadPage(state.currentPage + 1);
+      if (state.currentPage < state.totalPages) {
+        if (state.viewportLayout === "continuous" && typeof scrollToPageSlot === "function") {
+          scrollToPageSlot(state.currentPage + 1);
+        } else {
+          loadPage(state.currentPage + 1);
+        }
+      }
     });
   }
 
@@ -1395,7 +1441,11 @@ function setupViewerControls() {
     let p = parseInt(e.target.value);
     if (isNaN(p)) p = 1;
     p = Math.max(1, Math.min(p, state.totalPages));
-    loadPage(p);
+    if (state.viewportLayout === "continuous" && typeof scrollToPageSlot === "function") {
+      scrollToPageSlot(p);
+    } else {
+      loadPage(p);
+    }
   });
 
   // Zoom controls
@@ -1441,18 +1491,39 @@ function setupViewerControls() {
     });
   }
 
-  // Ctrl + MouseWheel zoom on canvas
+  const btnTogglePageLayout = document.getElementById("btnTogglePageLayout");
+  if (btnTogglePageLayout) {
+    btnTogglePageLayout.addEventListener("click", () => {
+      if (typeof togglePageLayoutMode === "function") {
+        togglePageLayoutMode();
+      }
+    });
+  }
+
+  if (typeof setupHandToolAndPan === "function") {
+    setupHandToolAndPan();
+  }
+
+  // Ctrl + MouseWheel cursor-anchored zoom on canvas
   const canvasViewport = document.getElementById("canvasViewport");
   if (canvasViewport) {
     canvasViewport.addEventListener("wheel", (e) => {
       if (e.ctrlKey) {
         e.preventDefault();
-        if (e.deltaY < 0 && state.zoom < 2.5) {
-          state.zoom = +(state.zoom + 0.15).toFixed(2);
-          updateZoom();
-        } else if (e.deltaY > 0 && state.zoom > 0.4) {
-          state.zoom = +(state.zoom - 0.15).toFixed(2);
-          updateZoom();
+        const oldZoom = state.zoom || 1.0;
+        let newZoom = oldZoom;
+        if (e.deltaY < 0 && oldZoom < 2.5) {
+          newZoom = +(oldZoom + 0.15).toFixed(2);
+        } else if (e.deltaY > 0 && oldZoom > 0.4) {
+          newZoom = +(oldZoom - 0.15).toFixed(2);
+        }
+        if (newZoom !== oldZoom) {
+          if (typeof zoomAtPoint === "function") {
+            zoomAtPoint(newZoom, e.clientX, e.clientY);
+          } else {
+            state.zoom = newZoom;
+            updateZoom();
+          }
         }
       }
     }, { passive: false });
@@ -1604,7 +1675,13 @@ function updateZoomSelectLabel() {
 
 function updateZoom() {
   updateZoomSelectLabel();
-  loadPage(state.currentPage);
+  if (state.viewportLayout === "continuous") {
+    if (typeof resizeContinuousPageSlots === "function") resizeContinuousPageSlots();
+    loadPage(state.currentPage, { skipScroll: true });
+    if (typeof updateVirtualization === "function") updateVirtualization();
+  } else {
+    loadPage(state.currentPage);
+  }
 }
 
 // ==========================================================================
@@ -2232,6 +2309,476 @@ window.calculateSmartSnapping = calculateSmartSnapping;
 window.renderSmartGuides = renderSmartGuides;
 window.clearSmartGuides = clearSmartGuides;
 window.getCandidateSnapTargets = getCandidateSnapTargets;
+
+// ==========================================================================
+// Continuous Multi-Page Virtualized Canvas Viewport (Plan Q2)
+// ==========================================================================
+
+let continuousObserver = null;
+let isScrollThrottled = false;
+
+function getEffectiveRenderZoom(zoom = state.zoom) {
+  const dpr = (typeof window !== "undefined" && window.devicePixelRatio) ? Math.min(window.devicePixelRatio, 2.5) : 1.0;
+  const dprFactor = dpr >= 1.5 ? 1.5 : 1.0;
+  return Math.min(5.0, Math.round((zoom || 1.0) * dprFactor * 100) / 100);
+}
+
+function getContinuousPagesContainer() {
+  let container = document.getElementById("continuousPagesContainer");
+  if (!container) {
+    const viewport = document.getElementById("canvasViewport");
+    if (viewport) {
+      container = document.createElement("div");
+      container.id = "continuousPagesContainer";
+      container.className = "continuous-pages-container";
+      container.style.display = "none";
+      viewport.insertBefore(container, viewport.firstChild);
+    }
+  }
+  return container;
+}
+
+function initContinuousDocumentFlow() {
+  if (!state.docId || state.totalPages <= 0) return;
+  const container = getContinuousPagesContainer();
+  if (!container) return;
+
+  if (state.viewportLayout !== "continuous") {
+    container.style.display = "none";
+    const wrapper = document.getElementById("pageCanvasWrapper");
+    const viewport = document.getElementById("canvasViewport");
+    if (wrapper && viewport && wrapper.parentElement !== viewport) {
+      viewport.appendChild(wrapper);
+    }
+    return;
+  }
+
+  container.style.display = "flex";
+  buildContinuousPageSlots();
+  setupContinuousIntersectionObserver();
+  attachCanvasToPageSlot(state.currentPage || 1);
+  updateVirtualization();
+}
+
+function buildContinuousPageSlots() {
+  const container = getContinuousPagesContainer();
+  if (!container) return;
+
+  container.innerHTML = "";
+  if (!state.continuousPageSlots) state.continuousPageSlots = new Map();
+  state.continuousPageSlots.clear();
+
+  for (let p = 1; p <= state.totalPages; p++) {
+    const pageMeta = state.docInfo?.pages?.[p - 1] || {};
+    const widthPt = pageMeta.width || state.pageWidthPt || 595;
+    const heightPt = pageMeta.height || state.pageHeightPt || 842;
+    const wPx = Math.round(widthPt * state.zoom);
+    const hPx = Math.round(heightPt * state.zoom);
+
+    const slot = document.createElement("div");
+    slot.className = `page-slot ${p === state.currentPage ? "active-slot" : ""}`;
+    slot.id = `pageSlot_${p}`;
+    slot.dataset.page = p;
+    slot.style.width = `${wPx}px`;
+    slot.style.height = `${hPx}px`;
+
+    const badge = document.createElement("span");
+    badge.className = "page-slot-badge";
+    badge.textContent = `Page ${p}`;
+
+    const content = document.createElement("div");
+    content.className = "page-slot-content";
+
+    slot.appendChild(badge);
+    slot.appendChild(content);
+
+    // Clicking anywhere on this page slot activates the page
+    slot.addEventListener("click", () => {
+      if (state.currentPage !== p && !state.isHandToolActive && !state.isSpacePanning) {
+        activatePageInContinuousFlow(p);
+      }
+    });
+
+    container.appendChild(slot);
+    state.continuousPageSlots.set(p, {
+      element: slot,
+      content: content,
+      widthPt: widthPt,
+      heightPt: heightPt,
+      isMounted: false
+    });
+  }
+}
+
+function resizeContinuousPageSlots() {
+  if (state.viewportLayout !== "continuous" || !state.continuousPageSlots) return;
+  for (let p = 1; p <= state.totalPages; p++) {
+    const slotInfo = state.continuousPageSlots.get(p);
+    if (!slotInfo || !slotInfo.element) continue;
+    const wPx = Math.round(slotInfo.widthPt * state.zoom);
+    const hPx = Math.round(slotInfo.heightPt * state.zoom);
+    slotInfo.element.style.width = `${wPx}px`;
+    slotInfo.element.style.height = `${hPx}px`;
+  }
+}
+
+function attachCanvasToPageSlot(pageNumber) {
+  if (state.viewportLayout !== "continuous" || !state.continuousPageSlots) return;
+  const canvasWrapper = document.getElementById("pageCanvasWrapper");
+  const targetSlot = state.continuousPageSlots.get(pageNumber);
+  if (!canvasWrapper || !targetSlot || !targetSlot.content) return;
+
+  document.querySelectorAll(".page-slot.active-slot").forEach(s => s.classList.remove("active-slot"));
+  targetSlot.element.classList.add("active-slot");
+
+  if (canvasWrapper.parentElement !== targetSlot.content) {
+    while (targetSlot.content.firstChild) {
+      targetSlot.content.removeChild(targetSlot.content.firstChild);
+    }
+    targetSlot.content.appendChild(canvasWrapper);
+  }
+}
+
+function activatePageInContinuousFlow(pageNumber) {
+  if (!state.docId || pageNumber < 1 || pageNumber > state.totalPages) return;
+  const prevPage = state.currentPage;
+  state.currentPage = pageNumber;
+  if (pageNumberInput) pageNumberInput.value = pageNumber;
+  syncActiveThumbnail(pageNumber);
+
+  if (prevPage && prevPage !== pageNumber && state.continuousPageSlots?.has(prevPage)) {
+    restoreSlotImage(prevPage);
+  }
+
+  attachCanvasToPageSlot(pageNumber);
+  loadPage(pageNumber, { skipScroll: true });
+}
+
+function restoreSlotImage(pageNumber) {
+  const slotInfo = state.continuousPageSlots?.get(pageNumber);
+  if (!slotInfo || !slotInfo.content) return;
+
+  const canvasWrapper = document.getElementById("pageCanvasWrapper");
+  if (canvasWrapper && canvasWrapper.parentElement === slotInfo.content) {
+    return;
+  }
+
+  const renderZoom = getEffectiveRenderZoom(state.zoom);
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}_rz${renderZoom}`;
+  const cachedBundle = state.pageBundleCache?.get(cacheKey);
+
+  slotInfo.content.innerHTML = "";
+  if (cachedBundle && cachedBundle.image_data_url) {
+    const img = document.createElement("img");
+    img.className = "page-slot-image";
+    img.src = cachedBundle.image_data_url;
+    slotInfo.content.appendChild(img);
+    slotInfo.isMounted = true;
+  } else {
+    mountPageImage(pageNumber);
+  }
+}
+
+function setupContinuousIntersectionObserver() {
+  if (continuousObserver) {
+    continuousObserver.disconnect();
+    continuousObserver = null;
+  }
+
+  const viewport = document.getElementById("canvasViewport");
+  if (!viewport || !("IntersectionObserver" in window)) return;
+
+  continuousObserver = new IntersectionObserver((entries) => {
+    let maxRatio = 0;
+    let mostVisiblePage = state.currentPage;
+
+    entries.forEach(entry => {
+      if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
+        maxRatio = entry.intersectionRatio;
+        const pageNum = parseInt(entry.target.dataset.page);
+        if (pageNum) mostVisiblePage = pageNum;
+      }
+    });
+
+    if (mostVisiblePage && mostVisiblePage !== state.currentPage && maxRatio > 0.4) {
+      state.currentPage = mostVisiblePage;
+      if (pageNumberInput) pageNumberInput.value = mostVisiblePage;
+      syncActiveThumbnail(mostVisiblePage);
+      document.querySelectorAll(".page-slot.active-slot").forEach(s => s.classList.remove("active-slot"));
+      const currentSlot = document.getElementById(`pageSlot_${mostVisiblePage}`);
+      if (currentSlot) currentSlot.classList.add("active-slot");
+    }
+  }, {
+    root: viewport,
+    threshold: [0.1, 0.4, 0.7, 1.0]
+  });
+
+  state.continuousPageSlots?.forEach(slotInfo => {
+    if (slotInfo.element) continuousObserver.observe(slotInfo.element);
+  });
+}
+
+function updateVirtualization() {
+  if (state.viewportLayout !== "continuous" || state.totalPages <= 0 || !state.continuousPageSlots) return;
+  const viewport = document.getElementById("canvasViewport");
+  if (!viewport) return;
+
+  const vTop = viewport.scrollTop;
+  const vBottom = vTop + viewport.clientHeight;
+  const PREFETCH_BUFFER_PX = viewport.clientHeight * 1.25;
+
+  const visibleRangeTop = vTop - PREFETCH_BUFFER_PX;
+  const visibleRangeBottom = vBottom + PREFETCH_BUFFER_PX;
+  const keepAll = state.totalPages <= 6;
+
+  state.continuousPageSlots.forEach((slotInfo, p) => {
+    if (p === state.currentPage) return;
+
+    const slotEl = slotInfo.element;
+    if (!slotEl) return;
+
+    const slotTop = slotEl.offsetTop;
+    const slotBottom = slotTop + slotEl.offsetHeight;
+    const isInWindow = keepAll || (slotBottom >= visibleRangeTop && slotTop <= visibleRangeBottom);
+
+    if (isInWindow && !slotInfo.isMounted) {
+      mountPageImage(p);
+    } else if (!isInWindow && slotInfo.isMounted && !keepAll) {
+      unmountPageImage(p);
+    }
+  });
+}
+
+function mountPageImage(pageNumber) {
+  const slotInfo = state.continuousPageSlots?.get(pageNumber);
+  if (!slotInfo || !slotInfo.content) return;
+
+  const renderZoom = getEffectiveRenderZoom(state.zoom);
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}_rz${renderZoom}`;
+  const cachedBundle = state.pageBundleCache?.get(cacheKey);
+
+  slotInfo.content.innerHTML = "";
+
+  if (cachedBundle && cachedBundle.image_data_url) {
+    const img = document.createElement("img");
+    img.className = "page-slot-image";
+    img.src = cachedBundle.image_data_url;
+    slotInfo.content.appendChild(img);
+    slotInfo.isMounted = true;
+  } else {
+    const placeholder = document.createElement("div");
+    placeholder.className = "page-slot-placeholder";
+    placeholder.innerHTML = `<span>Page ${pageNumber}</span><div class="page-slot-skeleton-bar"></div>`;
+    slotInfo.content.appendChild(placeholder);
+
+    fetchPageBundle(pageNumber).then(bundle => {
+      if (bundle && bundle.image_data_url && slotInfo.content) {
+        slotInfo.content.innerHTML = "";
+        const img = document.createElement("img");
+        img.className = "page-slot-image";
+        img.src = bundle.image_data_url;
+        slotInfo.content.appendChild(img);
+        slotInfo.isMounted = true;
+      }
+    }).catch(() => {});
+  }
+}
+
+function unmountPageImage(pageNumber) {
+  const slotInfo = state.continuousPageSlots?.get(pageNumber);
+  if (!slotInfo || !slotInfo.content) return;
+
+  slotInfo.content.innerHTML = "";
+  const placeholder = document.createElement("div");
+  placeholder.className = "page-slot-placeholder";
+  placeholder.innerHTML = `<span>Page ${pageNumber}</span>`;
+  slotInfo.content.appendChild(placeholder);
+  slotInfo.isMounted = false;
+}
+
+function scrollToPageSlot(pageNumber, smooth = true) {
+  if (state.viewportLayout !== "continuous") {
+    loadPage(pageNumber);
+    return;
+  }
+
+  const slotInfo = state.continuousPageSlots?.get(pageNumber);
+  if (slotInfo && slotInfo.element) {
+    slotInfo.element.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+    activatePageInContinuousFlow(pageNumber);
+  } else {
+    loadPage(pageNumber);
+  }
+}
+
+function togglePageLayoutMode(forcedMode = null) {
+  const newMode = forcedMode || (state.viewportLayout === "continuous" ? "single" : "continuous");
+  state.viewportLayout = newMode;
+
+  const btn = document.getElementById("btnTogglePageLayout");
+  if (btn) {
+    btn.classList.toggle("active", newMode === "continuous");
+    btn.title = newMode === "continuous" 
+      ? "Switch to Single Page View" 
+      : "Switch to Continuous Multi-Page View";
+  }
+
+  const container = getContinuousPagesContainer();
+  const wrapper = document.getElementById("pageCanvasWrapper");
+  const viewport = document.getElementById("canvasViewport");
+
+  if (newMode === "single") {
+    if (container) container.style.display = "none";
+    if (wrapper && viewport && wrapper.parentElement !== viewport) {
+      viewport.appendChild(wrapper);
+    }
+    showToast("Single page view: ON", "info");
+    loadPage(state.currentPage);
+  } else {
+    showToast("Continuous scroll view: ON", "info");
+    initContinuousDocumentFlow();
+  }
+}
+
+function zoomAtPoint(newZoom, clientX, clientY) {
+  const viewport = document.getElementById("canvasViewport");
+  if (!viewport) return;
+  const viewportRect = viewport.getBoundingClientRect();
+  const oldZoom = state.zoom || 1.0;
+
+  const mouseViewportX = clientX - viewportRect.left;
+  const mouseViewportY = clientY - viewportRect.top;
+  const contentX = mouseViewportX + viewport.scrollLeft;
+  const contentY = mouseViewportY + viewport.scrollTop;
+
+  const unscaledX = contentX / oldZoom;
+  const unscaledY = contentY / oldZoom;
+
+  state.zoom = Math.max(0.35, Math.min(2.5, newZoom));
+  updateZoomSelectLabel();
+
+  if (state.viewportLayout === "continuous") {
+    resizeContinuousPageSlots();
+    loadPage(state.currentPage, { skipScroll: true }).then(() => {
+      const newContentX = unscaledX * state.zoom;
+      const newContentY = unscaledY * state.zoom;
+      viewport.scrollLeft = Math.max(0, newContentX - mouseViewportX);
+      viewport.scrollTop = Math.max(0, newContentY - mouseViewportY);
+      updateVirtualization();
+    });
+  } else {
+    loadPage(state.currentPage).then(() => {
+      const newContentX = unscaledX * state.zoom;
+      const newContentY = unscaledY * state.zoom;
+      viewport.scrollLeft = Math.max(0, newContentX - mouseViewportX);
+      viewport.scrollTop = Math.max(0, newContentY - mouseViewportY);
+    });
+  }
+}
+
+function setupHandToolAndPan() {
+  const viewport = document.getElementById("canvasViewport");
+  const btnHandTool = document.getElementById("btnToggleHandTool");
+  if (!viewport) return;
+
+  function setHandTool(active) {
+    state.isHandToolActive = active;
+    if (btnHandTool) btnHandTool.classList.toggle("active", active);
+    if (active) {
+      viewport.classList.add("hand-tool-active");
+    } else if (!state.isSpacePanning) {
+      viewport.classList.remove("hand-tool-active");
+    }
+  }
+
+  if (btnHandTool) {
+    btnHandTool.addEventListener("click", () => {
+      setHandTool(!state.isHandToolActive);
+      showToast(state.isHandToolActive ? "Hand tool: ON (Drag to pan)" : "Selection tool: ON", "info");
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    const targetTag = e.target.tagName;
+    if (targetTag === "INPUT" || targetTag === "TEXTAREA" || targetTag === "SELECT" || e.target.isContentEditable) {
+      return;
+    }
+
+    if (e.code === "Space" && !e.repeat && !state.isSpacePanning) {
+      e.preventDefault();
+      state.isSpacePanning = true;
+      viewport.classList.add("hand-tool-active");
+    } else if (e.key === "h" || e.key === "H") {
+      setHandTool(!state.isHandToolActive);
+    } else if (e.key === "v" || e.key === "V") {
+      setHandTool(false);
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") {
+      state.isSpacePanning = false;
+      if (!state.isHandToolActive) {
+        viewport.classList.remove("hand-tool-active");
+      }
+    }
+  });
+
+  let isDraggingPan = false;
+  let startX = 0, startY = 0;
+  let startScrollLeft = 0, startScrollTop = 0;
+
+  viewport.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (state.isHandToolActive || state.isSpacePanning) {
+      isDraggingPan = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startScrollLeft = viewport.scrollLeft;
+      startScrollTop = viewport.scrollTop;
+      viewport.classList.add("hand-tool-panning");
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDraggingPan) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    viewport.scrollLeft = startScrollLeft - dx;
+    viewport.scrollTop = startScrollTop - dy;
+    e.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener("mouseup", () => {
+    if (isDraggingPan) {
+      isDraggingPan = false;
+      viewport.classList.remove("hand-tool-panning");
+    }
+  });
+
+  viewport.addEventListener("scroll", () => {
+    if (!isScrollThrottled && state.viewportLayout === "continuous") {
+      isScrollThrottled = true;
+      requestAnimationFrame(() => {
+        isScrollThrottled = false;
+        updateVirtualization();
+      });
+    }
+  }, { passive: true });
+}
+
+window.initContinuousDocumentFlow = initContinuousDocumentFlow;
+window.buildContinuousPageSlots = buildContinuousPageSlots;
+window.resizeContinuousPageSlots = resizeContinuousPageSlots;
+window.attachCanvasToPageSlot = attachCanvasToPageSlot;
+window.activatePageInContinuousFlow = activatePageInContinuousFlow;
+window.updateVirtualization = updateVirtualization;
+window.scrollToPageSlot = scrollToPageSlot;
+window.togglePageLayoutMode = togglePageLayoutMode;
+window.zoomAtPoint = zoomAtPoint;
+window.getEffectiveRenderZoom = getEffectiveRenderZoom;
 
 // ==========================================================================
 // Canvas Interaction & WYSIWYG
@@ -8158,7 +8705,11 @@ function populateThumbnails() {
     if (i === state.currentPage) wrapper.classList.add("active");
 
     wrapper.addEventListener("click", () => {
-      if (state.currentPage !== i) loadPage(i);
+      if (state.viewportLayout === "continuous" && typeof scrollToPageSlot === "function") {
+        scrollToPageSlot(i);
+      } else {
+        if (state.currentPage !== i) loadPage(i);
+      }
     });
 
     // Right-click context menu

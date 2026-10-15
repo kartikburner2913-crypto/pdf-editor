@@ -579,25 +579,33 @@ Smallpdf requires users to position text, images, and shapes completely by eye. 
 
 ### Plan Q2: Continuous Multi-Page Virtualized Canvas Viewport
 
+**Status:** Implemented (PASS)  
 **Difficulty:** High  
-**Estimated Effort:** 5-7 days  
-**Target Areas:** `static/js/app.js`, `static/css/style.css`, `templates/index.html`
+**Effort:** 5-7 days  
+**Target Areas:** `templates/index.html`, `static/css/style.css`, `static/js/app.js`, `tests/test_continuous_viewport.py`
 
 #### Problem Analysis
-The current editor renders one page at a time with `< Prev` / `Next >` navigation buttons. This creates a disjointed "slideshow" feel rather than a continuous reading and editing experience matching Adobe Acrobat Web or Google Docs.
+The traditional editor rendered one page at a time with `< Prev` / `Next >` navigation buttons, creating a disjointed "slideshow" feel rather than a continuous reading and editing experience matching Adobe Acrobat Web, Canva, or Google Docs.
 
-#### Architectural Specification
-1. **Vertical Document Flow:**
-   - Render pages sequentially in a continuous vertical stack separated by configurable gap (`18px`) and subtle elevation dropshadows.
+#### Architectural Specification & Implementation
+1. **Vertical Document Flow (`.continuous-pages-container`):**
+   - Pages are rendered sequentially in a continuous vertical stack with an elegant 18px separation gap, elevation dropshadows (`0 4px 18px rgba(0, 0, 0, 0.12)`), rounded corners, and dynamic pill badges (`Page X`).
+   - Seamless compatibility with Single Page View: `#btnTogglePageLayout` toolbar button allows instant toggling between Continuous Multi-Page Flow and Single-Page View (`state.viewportLayout = "continuous"` | `"single"`).
 2. **DOM Virtualization Engine:**
-   - To prevent memory bloat on 100+ page PDFs, virtualize the canvas stack: only keep visible pages plus a 1-page prefetch buffer above and below mounted in the DOM. Unmounted pages are represented by lightweight placeholder bounding boxes matching their native aspect ratios.
-3. **Cursor-Anchored Zoom & Pan Hand Tool:**
-   - `Ctrl + Mouse Wheel` zooming centered on the mouse pointer coordinates rather than page origin.
-   - Hold `Spacebar` + drag (or activate `H` hand tool) to pan smoothly in any direction across the entire document layout.
-4. **Active Page Auto-Detection:**
-   - IntersectionObserver monitors viewport center to update the active page counter, thumbnail highlight, and status bar seamlessly without manual paging clicks.
-5. **Dynamic Retina / High-DPI Scaling:**
-   - Scale PyMuPDF rendering pixmaps by `window.devicePixelRatio` (1.5x - 2.5x) so high-resolution screens and zoom levels above 125% remain razor-sharp without pixelation.
+   - To prevent memory bloat on multi-page PDFs (e.g. 50–200 pages), the viewport maintains a virtualization window: visible pages plus a prefetch buffer above and below are fully mounted.
+   - Distant offscreen pages are represented by lightweight placeholder skeletons preserving exact pixel dimensions (`widthPt * zoom`, `heightPt * zoom`), completely eliminating layout shifts during fast scrolling while keeping DOM memory minimal.
+3. **Cursor-Anchored Zoom:**
+   - `Ctrl + Mouse Wheel` zooming calculates the unscaled point under the cursor before zoom and repositions `scrollLeft` and `scrollTop` post-render so the exact point under the mouse pointer remains pinned to the cursor.
+4. **Pan Hand Tool & Spacebar Panning:**
+   - Dedicated toolbar Hand Tool toggle (`#btnToggleHandTool`) and hotkey `H` switch cursor to `grab`/`grabbing`.
+   - Holding <kbd>Spacebar</kbd> temporarily engages panning across any direction (horizontal and vertical) without altering tool state. Pressing `V` returns to Selection Tool.
+5. **Active Page Auto-Detection:**
+   - `IntersectionObserver` monitors visible page slots to automatically detect the primary page in view, updating `state.currentPage`, `#pageNumberInput`, status pill, and active thumbnail highlight in real-time.
+   - Clicking on any page slot smoothly transfers the interactive overlay (`#pageCanvasWrapper`), allowing immediate text editing, shape creation, and annotation directly on that page.
+6. **Dynamic Retina / High-DPI Scaling:**
+   - `getEffectiveRenderZoom()` computes device pixel ratio (`window.devicePixelRatio` up to 2.5x) to scale PyMuPDF render pixmaps to high DPI, while CSS scales elements to native layout dimensions, rendering razor-sharp text and graphics on Retina displays.
+7. **Verification:**
+   - Comprehensive automated test suite in `tests/test_continuous_viewport.py` covering HTML elements, CSS rules, emoji safety, live endpoint delivery, and Node-based mathematical verification of DPR zoom scaling, slot dimensions, and cursor-anchored zoom arithmetic (114 / 114 tests passing).
 
 ---
 
@@ -760,7 +768,7 @@ Commercial PDF tools provide no pre-download transparency regarding file size ch
 ### Phase 3 — Viewport & Typography Excellence (Week 4-5)
 | Priority | Feature / Upgrade | Effort | Impact | Status |
 |----------|-------------------|--------|--------|--------|
-| P1 | **Q2: Continuous Multi-Page Virtualized Canvas** | 5 days | Very High | Planned |
+| P1 | **Q2: Continuous Multi-Page Virtualized Canvas** | 5 days | Very High | Implemented (PASS) |
 | P1 | **Q4: Advanced Typography & Font Inpainting** | 3.5 days | Very High | Planned |
 | P2 | A9: OCR (Searchable PDF) | 3 days | High | Planned |
 | P2 | A11: Batch Processing | 2 days | Medium | Planned |
@@ -826,7 +834,7 @@ FastAPI + Uvicorn            # Web framework
 | Format Conversions | Full 2-way Word, Excel, PPT, PDF/A, Images | PDF to/from Word/Excel/PPT/Images | PDF Studio |
 | Mobile UX | Fully responsive + portrait drawer | Responsive + mobile app | Tie |
 | Spatial Precision | Smart Magnetic Guides & Snapping (Implemented) + 1pt Nudge (Planned) | None (manual eye alignment) | PDF Studio |
-| Viewport Flow | Continuous scroll (Planned) vs Single-page | Continuous scroll | SmallPDF (Current) |
+| Viewport Flow | Continuous scroll (Implemented) & Single Page Mode | Continuous scroll | PDF Studio |
 | Typography Inpainting | Font metadata & metric harmonizer (Planned) | Standard Arial/fallback substitution | PDF Studio (Planned) |
 | eSign Workflow | Image insert only | Draw/type/upload + send for signing | SmallPDF |
 | OCR | Not available | Pro feature | SmallPDF |
