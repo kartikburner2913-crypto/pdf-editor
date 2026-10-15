@@ -103,9 +103,16 @@ class PDFEngine:
         Positions: bottom-left, bottom-center, bottom-right, top-left, top-center, top-right
         """
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        color = color or [0.2, 0.2, 0.2]
-        if any(c > 1.0 for c in color):
-            color = [c / 255.0 for c in color]
+        if isinstance(color, str):
+            clean = color.lstrip("#")
+            if len(clean) == 6:
+                color = [int(clean[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+            else:
+                color = [0.2, 0.2, 0.2]
+        else:
+            color = list(color) if color else [0.2, 0.2, 0.2]
+            if any(c > 1.0 for c in color):
+                color = [c / 255.0 for c in color]
         fn = PDFEngine._normalize_font_name(font_name)
         
         try:
@@ -116,6 +123,7 @@ class PDFEngine:
                     continue
                 page = doc[idx]
                 text = (format_str or "Page {n} of {total}") \
+                    .replace("{page}", str(page_number)) \
                     .replace("{n}", str(page_number)) \
                     .replace("{total}", str(total))
                 
@@ -238,6 +246,7 @@ class PDFEngine:
                     })
 
             return {
+                "page": page_number,
                 "page_number": page_number,
                 "width": width_pt,
                 "height": height_pt,
@@ -1615,9 +1624,16 @@ class PDFEngine:
         Stamp a semi-transparent watermark diagonally or horizontally across PDF pages.
         """
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        color = color or [0.75, 0.75, 0.75]
-        if any(c > 1.0 for c in color):
-            color = [c / 255.0 for c in color]
+        if isinstance(color, str):
+            clean = color.lstrip("#")
+            if len(clean) == 6:
+                color = [int(clean[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+            else:
+                color = [0.75, 0.75, 0.75]
+        else:
+            color = list(color) if color else [0.75, 0.75, 0.75]
+            if any(c > 1.0 for c in color):
+                color = [c / 255.0 for c in color]
 
         try:
             total_pages = len(doc)
@@ -3373,12 +3389,21 @@ class PDFEngine:
         Apply permanent vector redactions to matched items and purge hidden metadata streams.
         """
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        fill_col = fill_color if fill_color is not None else [0.0, 0.0, 0.0]
-        if any(c > 1.0 for c in fill_col):
-            fill_col = [c / 255.0 for c in fill_col]
-        txt_col = text_color if text_color is not None else [1.0, 1.0, 1.0]
-        if any(c > 1.0 for c in txt_col):
-            txt_col = [c / 255.0 for c in txt_col]
+        if isinstance(fill_color, str):
+            clean = fill_color.lstrip("#")
+            fill_col = [int(clean[i:i+2], 16) / 255.0 for i in (0, 2, 4)] if len(clean) == 6 else [0.0, 0.0, 0.0]
+        else:
+            fill_col = list(fill_color) if fill_color is not None else [0.0, 0.0, 0.0]
+            if any(c > 1.0 for c in fill_col):
+                fill_col = [c / 255.0 for c in fill_col]
+
+        if isinstance(text_color, str):
+            clean = text_color.lstrip("#")
+            txt_col = [int(clean[i:i+2], 16) / 255.0 for i in (0, 2, 4)] if len(clean) == 6 else [1.0, 1.0, 1.0]
+        else:
+            txt_col = list(text_color) if text_color is not None else [1.0, 1.0, 1.0]
+            if any(c > 1.0 for c in txt_col):
+                txt_col = [c / 255.0 for c in txt_col]
             
         try:
             pages_to_redact = set()
@@ -3454,9 +3479,16 @@ class PDFEngine:
             "strikeout": [0.85, 0.15, 0.15],
             "squiggly": [0.55, 0.25, 0.8]
         }
-        col = color or default_colors.get(markup_type.lower(), [1.0, 0.95, 0.0])
-        if any(c > 1.0 for c in col):
-            col = [c / 255.0 for c in col]
+        if isinstance(color, str):
+            clean = color.lstrip("#")
+            if len(clean) == 6:
+                col = [int(clean[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+            else:
+                col = default_colors.get(markup_type.lower(), [1.0, 0.95, 0.0])
+        else:
+            col = color or default_colors.get(markup_type.lower(), [1.0, 0.95, 0.0])
+            if any(c > 1.0 for c in col):
+                col = [c / 255.0 for c in col]
             
         try:
             if not (1 <= page_num <= len(doc)):

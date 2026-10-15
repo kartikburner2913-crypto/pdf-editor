@@ -438,6 +438,11 @@ async function handlePdfUpload(file, password = null) {
     state.filename = data.filename;
     state.docInfo = data.info;
     state.fileSize = file.size;
+    state.docVersion = 0;
+    state.cacheBustTs = Date.now();
+    if (state.pageBundleCache) {
+      state.pageBundleCache.clear();
+    }
 
     if (data.requires_password || (data.info && data.info.is_encrypted && data.info.page_count === 0)) {
       openPasswordPromptModal(data.filename);
@@ -714,12 +719,13 @@ async function applyPageBundleDirectly(pageNumber, bundle, _opts = {}) {
   }
 }
 
-async function applyMutationResponse(data, targetPage = state.currentPage) {
+async function applyMutationResponse(data, targetPage = state.currentPage, _opts = {}) {
+  const previousPage = state.currentPage;
   state.cacheBustTs = Date.now();
   if (data && data.version !== undefined) {
     state.docVersion = data.version;
   } else {
-    state.docVersion = (state.docVersion || 1) + 1;
+    state.docVersion = (state.docVersion || 0) + 1;
   }
   if (state.pageBundleCache) {
     state.pageBundleCache.clear();
@@ -735,15 +741,18 @@ async function applyMutationResponse(data, targetPage = state.currentPage) {
     if (pageNumberInput) pageNumberInput.max = state.totalPages;
   }
 
-  state.currentPage = Math.min(Math.max(1, targetPage || state.currentPage), state.totalPages || 1);
+  const finalTargetPage = Math.min(Math.max(1, targetPage || state.currentPage), state.totalPages || 1);
+  state.currentPage = finalTargetPage;
   if (pageNumberInput) pageNumberInput.value = state.currentPage;
 
   populateThumbnails();
 
-  if (data && data.page_bundle && state.currentPage === (data.page_bundle.page || targetPage)) {
-    await applyPageBundleDirectly(state.currentPage, data.page_bundle);
+  const isSwitch = _opts.forceScrollReset || (previousPage !== finalTargetPage);
+
+  if (data && data.page_bundle && finalTargetPage === (data.page_bundle.page || targetPage)) {
+    await applyPageBundleDirectly(finalTargetPage, data.page_bundle, { forceScrollReset: isSwitch });
   } else {
-    await loadPage(state.currentPage);
+    await loadPage(finalTargetPage, { forceScrollReset: isSwitch });
   }
 }
 
@@ -1608,7 +1617,7 @@ function setupViewerControls() {
           populateThumbnails();
           deselectFormField();
           showToast("Reverted to original document.", "info");
-          await loadPage(1);
+          await loadPage(1, { forceScrollReset: true });
           await loadFormFields();
         } catch (err) {
           showToast(err.message, "error");
@@ -2451,7 +2460,7 @@ function createPageSlotElement(pageNumber) {
 
   slot.addEventListener("click", () => {
     if (state.currentPage !== pageNumber && !state.isHandToolActive && !state.isSpacePanning) {
-      loadPage(pageNumber);
+      scrollToPageSlot(pageNumber);
     }
   });
 
@@ -5906,15 +5915,16 @@ function setupToolActions() {
 
       setLoading(true, "Saving form values...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/fill-forms`, {
+        const res = await fetch(`/api/document/${state.docId}/fill-forms?page=${state.currentPage}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ values: values })
         });
         if (!res.ok) throw new Error("Failed to save form values");
+        const data = await res.json();
         showToast("Form values saved!", "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
+        await loadFormFields();
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -5958,15 +5968,15 @@ function setupToolActions() {
         try {
           const jsonData = JSON.parse(re.target.result);
           setLoading(true, "Importing form data...");
-          const res = await fetch(`/api/document/${state.docId}/forms/import-json`, {
+          const res = await fetch(`/api/document/${state.docId}/forms/import-json?page=${state.currentPage}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ data: jsonData })
           });
           if (!res.ok) throw new Error("Failed to import form data");
+          const data = await res.json();
           showToast("Form data imported successfully!", "success");
-          updateUndoRedoButtons(true, false);
-          await loadPage(state.currentPage);
+          await applyMutationResponse(data, state.currentPage);
           await loadFormFields();
         } catch (err) {
           showToast("Import error: " + err.message, "error");
@@ -5985,11 +5995,11 @@ function setupToolActions() {
       showConfirmModal("Clear All Fields", "Clear all form field values across the entire document?", async () => {
         setLoading(true, "Clearing form fields...");
         try {
-          const res = await fetch(`/api/document/${state.docId}/forms/clear`, { method: "POST" });
+          const res = await fetch(`/api/document/${state.docId}/forms/clear?page=${state.currentPage}`, { method: "POST" });
           if (!res.ok) throw new Error("Failed to clear form fields");
+          const data = await res.json();
           showToast("All form field values cleared!", "success");
-          updateUndoRedoButtons(true, false);
-          await loadPage(state.currentPage);
+          await applyMutationResponse(data, state.currentPage);
           await loadFormFields();
         } catch (err) {
           showToast(err.message, "error");
@@ -6005,11 +6015,11 @@ function setupToolActions() {
       showConfirmModal("Flatten Forms", "Flatten all interactive form fields into static text? This action cannot be unflattened.", async () => {
         setLoading(true, "Flattening forms...");
         try {
-          const res = await fetch(`/api/document/${state.docId}/forms/flatten`, { method: "POST" });
+          const res = await fetch(`/api/document/${state.docId}/forms/flatten?page=${state.currentPage}`, { method: "POST" });
           if (!res.ok) throw new Error("Failed to flatten forms");
+          const data = await res.json();
           showToast("Forms flattened into static content!", "success");
-          updateUndoRedoButtons(true, false);
-          await loadPage(state.currentPage);
+          await applyMutationResponse(data, state.currentPage);
           await loadFormFields();
         } catch (err) {
           showToast(err.message, "error");
@@ -6058,16 +6068,16 @@ function setupToolActions() {
     };
 
     try {
-      const res = await fetch(`/api/document/${state.docId}/redact`, {
+      const res = await fetch(`/api/document/${state.docId}/redact?page=${state.currentPage}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to apply redactions");
+      const data = await res.json();
       showToast("Redaction permanently applied!", "success");
       redactBox.remove();
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
+      await applyMutationResponse(data, state.currentPage);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -6079,7 +6089,7 @@ function setupToolActions() {
     showConfirmModal("Sanitize Document", "Sanitize document to purge metadata, embedded attachments, and links? This ensures zero sensitive data leaks.", async () => {
       setLoading(true, "Sanitizing document...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/sanitize`, {
+        const res = await fetch(`/api/document/${state.docId}/sanitize?page=${state.currentPage}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -6089,9 +6099,9 @@ function setupToolActions() {
           })
         });
         if (!res.ok) throw new Error("Failed to sanitize");
+        const data = await res.json();
         showToast("Document sanitized!", "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -6131,15 +6141,15 @@ function setupToolActions() {
     };
 
     try {
-      const res = await fetch(`/api/document/${state.docId}/watermark`, {
+      const res = await fetch(`/api/document/${state.docId}/watermark?page=${state.currentPage}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to apply watermark");
+      const data = await res.json();
       showToast("Watermark applied!", "success");
-      updateUndoRedoButtons(true, false);
-      await loadPage(state.currentPage);
+      await applyMutationResponse(data, state.currentPage);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -6169,15 +6179,15 @@ function setupToolActions() {
       };
 
       try {
-        const res = await fetch(`/api/document/${state.docId}/page-numbers`, {
+        const res = await fetch(`/api/document/${state.docId}/page-numbers?page=${state.currentPage}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error("Failed to apply page numbers");
+        const data = await res.json();
         showToast("Page numbers applied!", "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -6223,22 +6233,9 @@ function setupToolActions() {
       });
       if (!res.ok) throw new Error("Insert blank failed");
       const data = await res.json();
-      state.cacheBustTs = Date.now();
-      state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
-      if (state.pageBundleCache) {
-        state.pageBundleCache.clear();
-      }
-      state.docInfo = data.info;
-      state.totalPages = data.info.page_count;
-      state.currentPage = at;
-      totalPagesSpan.textContent = state.totalPages;
-      pageNumberInput.value = at;
-      pageNumberInput.max = state.totalPages;
-      updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
-      updatePageOrderInput();
-      populateThumbnails();
       showToast("Blank page inserted!", "success");
-      await loadPage(at);
+      updatePageOrderInput();
+      await applyMutationResponse(data, at);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -7516,18 +7513,18 @@ function setupToolActions() {
     };
 
     try {
-      const res = await fetch(`/api/document/${state.docId}/protect`, {
+      const res = await fetch(`/api/document/${state.docId}/protect?page=${state.currentPage}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Protection failed");
+      const data = await res.json();
       showToast("Document encrypted with AES-256!", "success");
-      updateUndoRedoButtons(true, false);
       document.getElementById("protectPassword").value = "";
       if (state.docInfo) state.docInfo.is_encrypted = true;
       updateSecurityTabUI();
-      await loadPage(state.currentPage);
+      await applyMutationResponse(data, state.currentPage);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -7546,7 +7543,7 @@ function setupToolActions() {
       }
       setLoading(true, "Decrypting and removing password...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/unlock`, {
+        const res = await fetch(`/api/document/${state.docId}/unlock?page=${state.currentPage}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password })
@@ -7555,12 +7552,11 @@ function setupToolActions() {
         if (!res.ok) throw new Error(result.detail || "Incorrect password.");
 
         showToast("Password removed! Document is now unencrypted.", "success");
-        updateUndoRedoButtons(true, false);
         const inputEl = document.getElementById("unlockDocPassword");
         if (inputEl) inputEl.value = "";
-        state.docInfo = result.info;
+        if (state.docInfo) state.docInfo.is_encrypted = false;
         updateSecurityTabUI();
-        await loadPage(state.currentPage);
+        await applyMutationResponse(result, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -7782,15 +7778,16 @@ function setupToolActions() {
 
     setLoading(true, "Adding bookmark...");
     try {
-      const res = await fetch(`/api/document/${state.docId}/bookmarks`, {
+      const res = await fetch(`/api/document/${state.docId}/bookmarks?page=${state.currentPage}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookmarks: currentBookmarks })
       });
       if (!res.ok) throw new Error("Failed to add bookmark");
+      const data = await res.json();
       showToast("Bookmark added!", "success");
       document.getElementById("newBookmarkTitle").value = "";
-      updateUndoRedoButtons(true, false);
+      await applyMutationResponse(data, state.currentPage);
       await loadBookmarks();
     } catch (err) {
       showToast(err.message, "error");
@@ -7849,7 +7846,7 @@ function setupToolActions() {
       if (!state.docId) return showToast("No document loaded", "error");
       setLoading(true, "Compressing PDF streams...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/compress`, {
+        const res = await fetch(`/api/document/${state.docId}/compress?page=${state.currentPage}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mode: "lossy", preset: "recommended" })
@@ -7857,8 +7854,7 @@ function setupToolActions() {
         if (!res.ok) throw new Error("Compression failed");
         const data = await res.json();
         showToast(data.message || "PDF compressed and optimized!", "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -7879,12 +7875,11 @@ function setupToolActions() {
       if (!state.docId) return showToast("No document loaded", "error");
       setLoading(true, "Compressing PDF streams...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/compress`, { method: "POST" });
+        const res = await fetch(`/api/document/${state.docId}/compress?page=${state.currentPage}`, { method: "POST" });
         if (!res.ok) throw new Error("Compression failed");
         const data = await res.json();
         showToast(data.message || "PDF compressed and optimized!", "success");
-        updateUndoRedoButtons(true, false);
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -7903,14 +7898,15 @@ function setupToolActions() {
 
     setLoading(true, "Saving metadata...");
     try {
-      const res = await fetch(`/api/document/${state.docId}/metadata`, {
+      const res = await fetch(`/api/document/${state.docId}/metadata?page=${state.currentPage}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to save metadata");
+      const data = await res.json();
       showToast("Metadata properties saved!", "success");
-      updateUndoRedoButtons(true, false);
+      await applyMutationResponse(data, state.currentPage);
       await loadMetadataAndAudit();
     } catch (err) {
       showToast(err.message, "error");
@@ -9216,23 +9212,15 @@ async function rotateCurrentPage(angle) {
 
   setLoading(true, `Rotating Page ${state.currentPage}...`);
   try {
-    const res = await fetch(`/api/document/${state.docId}/organize`, {
+    const res = await fetch(`/api/document/${state.docId}/organize?page=${state.currentPage}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ page_order: pageOrder, rotations: rotations })
     });
     if (!res.ok) throw new Error("Failed to rotate page");
     const data = await res.json();
-    state.cacheBustTs = Date.now();
-    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
-    if (state.pageBundleCache) {
-      state.pageBundleCache.clear();
-    }
-    state.docInfo = data.info;
     showToast(`Page ${state.currentPage} rotated by ${angle}°`, "success");
-    updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
-    populateThumbnails();
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -9250,20 +9238,9 @@ async function duplicateCurrentPage() {
     });
     if (!res.ok) throw new Error("Duplicate failed");
     const data = await res.json();
-    state.cacheBustTs = Date.now();
-    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
-    if (state.pageBundleCache) {
-      state.pageBundleCache.clear();
-    }
-    state.docInfo = data.info;
-    state.totalPages = data.info.page_count;
-    totalPagesSpan.textContent = state.totalPages;
-    pageNumberInput.max = state.totalPages;
-    updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
-    updatePageOrderInput();
-    populateThumbnails();
     showToast(`Page ${state.currentPage} duplicated!`, "success");
-    await loadPage(state.currentPage + 1);
+    updatePageOrderInput();
+    await applyMutationResponse(data, state.currentPage + 1);
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -9275,29 +9252,16 @@ async function applyPageOrder(order) {
   if (order.length === 0) return;
   setLoading(true, "Applying page order...");
   try {
-    const res = await fetch(`/api/document/${state.docId}/organize`, {
+    const res = await fetch(`/api/document/${state.docId}/organize?page=${state.currentPage}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ page_order: order })
     });
     if (!res.ok) throw new Error("Failed to reorder pages");
     const data = await res.json();
-    state.cacheBustTs = Date.now();
-    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 0) + 1;
-    if (state.pageBundleCache) {
-      state.pageBundleCache.clear();
-    }
-    state.docInfo = data.info;
-    state.totalPages = data.info.page_count;
-    state.currentPage = Math.min(Math.max(1, state.currentPage), state.totalPages);
-    totalPagesSpan.textContent = state.totalPages;
-    pageNumberInput.max = state.totalPages;
-    pageNumberInput.value = state.currentPage;
-    updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
-    updatePageOrderInput();
-    populateThumbnails();
     showToast("Page order applied!", "success");
-    await loadPage(state.currentPage, { forceScrollReset: true });
+    updatePageOrderInput();
+    await applyMutationResponse(data, state.currentPage, { forceScrollReset: true });
     syncActiveThumbnail(state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
@@ -9875,7 +9839,7 @@ function setupPiiScanner() {
         async () => {
           setLoading(true, "Applying permanent redactions & sanitizing...");
           try {
-            const res = await fetch(`/api/document/${state.docId}/auto-redact-pii`, {
+            const res = await fetch(`/api/document/${state.docId}/auto-redact-pii?page=${state.currentPage}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -9888,12 +9852,11 @@ function setupPiiScanner() {
             });
             if (!res.ok) throw new Error("Failed to auto-redact items");
             const data = await res.json();
-            updateUndoRedoButtons(true, false);
             showToast(data.message || "Sensitive items redacted successfully!", "success");
             if (piiResultsContainer) piiResultsContainer.style.display = "none";
             state.piiMatches = [];
             renderPiiHighlights();
-            await loadPage(state.currentPage);
+            await applyMutationResponse(data, state.currentPage);
           } catch (err) {
             showToast(err.message, "error");
           } finally {
@@ -9957,10 +9920,9 @@ function setupTextMarkup() {
         });
         if (!res.ok) throw new Error("Failed to apply text markup");
         const data = await res.json();
-        updateUndoRedoButtons(true, false);
         showToast(data.message || "Markup applied!", "success");
         if (markupSearchInput) markupSearchInput.value = "";
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -10916,9 +10878,8 @@ async function applyVisualCrop(applyAll = false) {
     }
     const data = await res.json();
     cancelVisualCrop();
-    updateUndoRedoButtons(true, false);
     showToast(data.message || (applyAll ? "All pages cropped successfully!" : `Page ${state.currentPage} cropped!`), "success");
-    await loadPage(state.currentPage);
+    await applyMutationResponse(data, state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
   } finally {
@@ -11124,16 +11085,15 @@ function setupPageCroppingAndTrimming() {
       if (!state.docId) return showToast("No document loaded", "error");
       setLoading(true, "Detecting content boundaries & trimming margins...");
       try {
-        const res = await fetch(`/api/document/${state.docId}/trim-margins`, {
+        const res = await fetch(`/api/document/${state.docId}/trim-margins?page=${state.currentPage}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ page: state.currentPage, padding: 18.0 })
         });
         if (!res.ok) throw new Error("Failed to trim margins");
         const data = await res.json();
-        updateUndoRedoButtons(true, false);
         showToast(data.message || "Margins auto-trimmed!", "success");
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -11169,9 +11129,8 @@ function setupPageCroppingAndTrimming() {
         if (!res.ok) throw new Error("Failed to crop page");
         const data = await res.json();
         if (state.isVisualCropping) cancelVisualCrop();
-        updateUndoRedoButtons(true, false);
         showToast(data.message || "Page cropped!", "success");
-        await loadPage(state.currentPage);
+        await applyMutationResponse(data, state.currentPage);
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -11546,8 +11505,7 @@ function setupPdfCompressionFeature() {
           });
           data = await res.json();
           if (!res.ok) throw new Error(data.detail || "Compression failed");
-          updateUndoRedoButtons(true, false);
-          await loadPage(state.currentPage);
+          await applyMutationResponse(data, state.currentPage);
         }
 
         clearTimeout(progressTimer1);

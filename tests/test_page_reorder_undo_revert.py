@@ -151,7 +151,8 @@ def test_user_reported_bugs_verification():
     assert 'loadPage(state.currentPage, { forceScrollReset: true })' in js
 
     # Bug 2: verify applyPageOrder loads active page with forceScrollReset and syncs active thumbnail
-    assert 'await loadPage(state.currentPage, { forceScrollReset: true });' in js
+    assert ('await applyMutationResponse(data, state.currentPage, { forceScrollReset: true });' in js or 
+            'await loadPage(state.currentPage, { forceScrollReset: true });' in js)
     assert 'syncActiveThumbnail(state.currentPage);' in js
 
     # Bug 3: verify thumbnail click navigation handles mouseup/click and prevents image drag conflicts

@@ -185,15 +185,20 @@ def save_and_bundle(
         "can_undo": can_undo,
         "can_redo": can_redo
     }
+    info = None
     if include_info:
         try:
-            res["info"] = PDFEngine.get_document_info(new_pdf)
+            info = PDFEngine.get_document_info(new_pdf)
+            res["info"] = info
         except Exception:
             pass
             
     if page_num and page_num > 0:
         try:
-            bundle = PDFEngine.get_page_bundle(new_pdf, page_num, zoom=zoom)
+            target_p = page_num
+            if info and "page_count" in info and info["page_count"] > 0:
+                target_p = max(1, min(page_num, info["page_count"]))
+            bundle = PDFEngine.get_page_bundle(new_pdf, target_p, zoom=zoom)
             bundle["version"] = next_v
             res["page_bundle"] = bundle
         except Exception:
@@ -307,8 +312,9 @@ class WatermarkRequest(BaseModel):
     text: str
     opacity: float = 0.3
     font_size: float = 48.0
-    color: List[float] = [0.75, 0.75, 0.75]
+    color: Optional[Union[List[float], str]] = [0.75, 0.75, 0.75]
     rotation_angle: float = 45.0
+    angle: Optional[float] = None
     page_numbers: Optional[List[int]] = None
 
 
@@ -334,7 +340,8 @@ class UnlockRequest(BaseModel):
 
 
 class FormFillRequest(BaseModel):
-    values: Dict[str, Any]
+    values: Optional[Dict[str, Any]] = None
+    fields: Optional[Dict[str, Any]] = None
 
 
 class AddFormFieldRequest(BaseModel):
@@ -503,8 +510,8 @@ class ScanPIIRequest(BaseModel):
 
 class AutoRedactPIIRequest(BaseModel):
     items: List[Dict[str, Any]]
-    fill_color: Optional[List[float]] = [0.0, 0.0, 0.0]
-    text_color: Optional[List[float]] = [1.0, 1.0, 1.0]
+    fill_color: Optional[Union[List[float], str]] = [0.0, 0.0, 0.0]
+    text_color: Optional[Union[List[float], str]] = [1.0, 1.0, 1.0]
     label: Optional[str] = "[REDACTED]"
     sanitize_metadata: Optional[bool] = True
 
@@ -514,7 +521,7 @@ class TextMarkupRequest(BaseModel):
     type: str = "highlight"  # highlight, underline, strikeout, squiggly
     bboxes: Optional[List[List[float]]] = None
     search_text: Optional[str] = None
-    color: Optional[List[float]] = None
+    color: Optional[Union[List[float], str]] = None
 
 
 class PageNumberRequest(BaseModel):
@@ -523,7 +530,7 @@ class PageNumberRequest(BaseModel):
     start_page: int = 1
     font_size: float = 10.0
     font_name: str = "helv"
-    color: Optional[List[float]] = [0.2, 0.2, 0.2]
+    color: Optional[Union[List[float], str]] = [0.2, 0.2, 0.2]
     margin: float = 36.0
 
 
@@ -853,7 +860,7 @@ async def add_shape(doc_id: str, req: AddShapeRequest):
 
 
 @app.post("/api/document/{doc_id}/watermark")
-async def add_watermark(doc_id: str, req: WatermarkRequest):
+async def add_watermark(doc_id: str, req: WatermarkRequest, page: Optional[int] = Query(None)):
     """Add watermark to PDF."""
     doc = get_doc(doc_id)
     try:
@@ -863,25 +870,17 @@ async def add_watermark(doc_id: str, req: WatermarkRequest):
             opacity=req.opacity,
             font_size=req.font_size,
             color=req.color,
-            rotation_angle=req.rotation_angle,
+            rotation_angle=req.angle if req.angle is not None else req.rotation_angle,
             page_numbers=req.page_numbers
         )
-        next_v = save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {
-            "status": "success",
-            "message": "Watermark applied successfully.",
-            "info": info,
-            "version": next_v,
-            "can_undo": next_v > 0,
-            "can_redo": False
-        }
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Watermark applied successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error applying watermark: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/organize")
-async def organize_pages(doc_id: str, req: OrganizeRequest):
+async def organize_pages(doc_id: str, req: OrganizeRequest, page: Optional[int] = Query(None)):
     """Reorder, delete, and rotate pages."""
     if not req.page_order:
         raise HTTPException(status_code=400, detail="Page order list cannot be empty.")
@@ -893,16 +892,8 @@ async def organize_pages(doc_id: str, req: OrganizeRequest):
             page_order=req.page_order,
             rotations=rotations_int
         )
-        next_v = save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {
-            "status": "success",
-            "message": "Pages organized successfully.",
-            "info": info,
-            "version": next_v,
-            "can_undo": next_v > 0,
-            "can_redo": False
-        }
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Pages organized successfully.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1054,7 +1045,7 @@ async def extract_images(doc_id: str):
 
 
 @app.post("/api/document/{doc_id}/compress")
-async def compress_pdf(doc_id: str, req: Optional[CompressPDFRequest] = None):
+async def compress_pdf(doc_id: str, req: Optional[CompressPDFRequest] = None, page: Optional[int] = Query(None)):
     """Compress and optimize PDF file streams and embedded raster images."""
     doc = get_doc(doc_id)
     if req is None:
@@ -1069,10 +1060,8 @@ async def compress_pdf(doc_id: str, req: Optional[CompressPDFRequest] = None):
             grayscale=req.grayscale or False,
             remove_metadata=req.remove_metadata or False
         )
-        save_new_version(doc_id, res["compressed_bytes"])
-        return {
-            "status": "success",
-            "message": f"Successfully compressed! Reduced from {res['original_size'] // 1024} KB to {res['compressed_size'] // 1024} KB ({res['savings_percent']}% reduction).",
+        target_page = page or 1
+        extra_data = {
             "original_size": res["original_size"],
             "new_size": res["compressed_size"],
             "compressed_size": res["compressed_size"],
@@ -1083,6 +1072,8 @@ async def compress_pdf(doc_id: str, req: Optional[CompressPDFRequest] = None):
             "images_optimized": res["images_optimized"],
             "page_count": res.get("page_count", 1)
         }
+        msg = f"Successfully compressed! Reduced from {res['original_size'] // 1024} KB to {res['compressed_size'] // 1024} KB ({res['savings_percent']}% reduction)."
+        return save_and_bundle(doc_id, res["compressed_bytes"], page_num=target_page, message=msg, extra=extra_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1207,7 +1198,7 @@ async def compress_direct_download(
 
 
 @app.post("/api/document/{doc_id}/protect")
-async def protect_pdf(doc_id: str, req: ProtectRequest):
+async def protect_pdf(doc_id: str, req: ProtectRequest, page: Optional[int] = Query(None)):
     """Set password encryption on current PDF."""
     doc = get_doc(doc_id)
     try:
@@ -1218,14 +1209,14 @@ async def protect_pdf(doc_id: str, req: ProtectRequest):
             allow_copy=req.allow_copy,
             allow_edit=req.allow_edit
         )
-        save_new_version(doc_id, protected)
-        return {"status": "success", "message": "Password protection applied successfully."}
+        target_page = page or 1
+        return save_and_bundle(doc_id, protected, page_num=target_page, message="Password protection applied successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error protecting PDF: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/unlock")
-async def unlock_pdf(doc_id: str, req: UnlockRequest):
+async def unlock_pdf(doc_id: str, req: UnlockRequest, page: Optional[int] = Query(None)):
     """Remove password encryption from current PDF."""
     doc = get_doc(doc_id)
     try:
@@ -1233,13 +1224,8 @@ async def unlock_pdf(doc_id: str, req: UnlockRequest):
             doc["current_bytes"],
             password=req.password
         )
-        save_new_version(doc_id, unlocked)
-        info = PDFEngine.get_document_info(unlocked)
-        return {
-            "status": "success",
-            "message": "Password protection removed successfully.",
-            "info": info
-        }
+        target_page = page or 1
+        return save_and_bundle(doc_id, unlocked, page_num=target_page, message="Password protection removed successfully.")
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
@@ -1371,13 +1357,14 @@ async def get_form_fields(doc_id: str):
 
 @app.post("/api/document/{doc_id}/forms/fill")
 @app.post("/api/document/{doc_id}/fill-forms")
-async def fill_form_fields(doc_id: str, req: FormFillRequest):
+async def fill_form_fields(doc_id: str, req: FormFillRequest, page: Optional[int] = Query(None)):
     """Fill form fields in place."""
     doc = get_doc(doc_id)
     try:
-        new_pdf = PDFEngine.fill_form_fields(doc["current_bytes"], req.values)
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Form fields updated successfully."}
+        vals = req.values if req.values is not None else (req.fields or {})
+        new_pdf = PDFEngine.fill_form_fields(doc["current_bytes"], vals)
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Form fields updated successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating form fields: {str(e)}")
 
@@ -1462,13 +1449,13 @@ async def move_form_field(doc_id: str, req: MoveFormFieldRequest):
 
 
 @app.post("/api/document/{doc_id}/forms/clear")
-async def clear_form_fields(doc_id: str):
+async def clear_form_fields(doc_id: str, page: Optional[int] = Query(None)):
     """Clear all form field values in document."""
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.clear_form_fields(doc["current_bytes"])
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "All form fields cleared."}
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="All form fields cleared.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error clearing form fields: {str(e)}")
 
@@ -1485,26 +1472,26 @@ async def export_form_json(doc_id: str):
 
 
 @app.post("/api/document/{doc_id}/forms/import-json")
-async def import_form_json(doc_id: str, req: ImportFormDataRequest):
+async def import_form_json(doc_id: str, req: ImportFormDataRequest, page: Optional[int] = Query(None)):
     """Import form field data from JSON dictionary."""
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.import_form_data(doc["current_bytes"], req.data)
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Form data imported successfully."}
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Form data imported successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error importing form data: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/forms/flatten")
 @app.post("/api/document/{doc_id}/flatten-forms")
-async def flatten_forms(doc_id: str):
+async def flatten_forms(doc_id: str, page: Optional[int] = Query(None)):
     """Bake all form fields and annotations into static vectors."""
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.flatten_forms(doc["current_bytes"])
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Document flattened successfully."}
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Document flattened successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error flattening document: {str(e)}")
 
@@ -1522,40 +1509,40 @@ async def get_bookmarks(doc_id: str):
 
 
 @app.post("/api/document/{doc_id}/bookmarks")
-async def set_bookmarks(doc_id: str, req: BookmarksRequest):
+async def set_bookmarks(doc_id: str, req: BookmarksRequest, page: Optional[int] = Query(None)):
     """Save updated bookmarks hierarchy."""
     doc = get_doc(doc_id)
     try:
         items = [b.model_dump() for b in req.bookmarks]
         new_pdf = PDFEngine.set_bookmarks(doc["current_bytes"], items)
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Bookmarks updated successfully."}
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Bookmarks updated successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving bookmarks: {str(e)}")
 
 
 # --- TRUE REDACTION & SANITIZATION ---
 @app.post("/api/document/{doc_id}/redact")
-async def apply_redaction(doc_id: str, req: RedactRequest):
+async def apply_redaction(doc_id: str, req: RedactRequest, page: Optional[int] = Query(None)):
     """Apply true permanent redaction deleting underlying characters and pixels."""
     doc = get_doc(doc_id)
     try:
         items = [r.model_dump() for r in req.redactions]
         new_pdf = PDFEngine.apply_redactions_with_labels(doc["current_bytes"], items)
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": f"{len(items)} area(s) redacted permanently."}
+        target_page = page or (req.redactions[0].page if req.redactions else 1)
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message=f"{len(items)} area(s) redacted permanently.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error applying redactions: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/sanitize")
-async def sanitize_pdf(doc_id: str, req: SanitizeRequest):
+async def sanitize_pdf(doc_id: str, req: SanitizeRequest, page: Optional[int] = Query(None)):
     """Strip metadata, attachments, hidden links, scripts, and revisions."""
     doc = get_doc(doc_id)
     try:
         new_pdf, report = PDFEngine.sanitize_document(doc["current_bytes"], req.model_dump())
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Document sanitized successfully.", "report": report}
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Document sanitized successfully.", extra={"report": report})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sanitizing document: {str(e)}")
 
@@ -1777,13 +1764,13 @@ async def get_metadata(doc_id: str):
 
 
 @app.post("/api/document/{doc_id}/metadata")
-async def update_metadata(doc_id: str, req: MetadataRequest):
+async def update_metadata(doc_id: str, req: MetadataRequest, page: Optional[int] = Query(None)):
     """Update document metadata properties."""
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.update_metadata(doc["current_bytes"], req.model_dump())
-        save_new_version(doc_id, new_pdf)
-        return {"status": "success", "message": "Metadata updated successfully."}
+        target_page = page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Metadata updated successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating metadata: {str(e)}")
 
@@ -1811,16 +1798,7 @@ async def insert_blank_page(doc_id: str, req: InsertBlankPageRequest):
             width=req.width,
             height=req.height
         )
-        next_v = save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {
-            "status": "success",
-            "message": f"Blank page inserted at page {req.at_page}.",
-            "info": info,
-            "version": next_v,
-            "can_undo": next_v > 0,
-            "can_redo": False
-        }
+        return save_and_bundle(doc_id, new_pdf, page_num=req.at_page, message=f"Blank page inserted at page {req.at_page}.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error inserting page: {str(e)}")
 
@@ -1831,16 +1809,7 @@ async def duplicate_page(doc_id: str, req: DuplicatePageRequest):
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.duplicate_page(doc["current_bytes"], page_num=req.page)
-        next_v = save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {
-            "status": "success",
-            "message": f"Page {req.page} duplicated.",
-            "info": info,
-            "version": next_v,
-            "can_undo": next_v > 0,
-            "can_redo": False
-        }
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page + 1, message=f"Page {req.page} duplicated.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error duplicating page: {str(e)}")
 
@@ -1856,17 +1825,8 @@ async def crop_page(doc_id: str, req: CropPageRequest):
             crop_box=req.crop_box,
             apply_all_pages=req.apply_all_pages
         )
-        next_v = save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
         target_str = "all pages" if req.apply_all_pages else f"page {req.page}"
-        return {
-            "status": "success",
-            "message": f"Cropped {target_str}.",
-            "info": info,
-            "version": next_v,
-            "can_undo": next_v > 0,
-            "can_redo": False
-        }
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page or 1, message=f"Cropped {target_str}.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cropping page: {str(e)}")
 
@@ -1892,10 +1852,9 @@ async def trim_margins(doc_id: str, req: TrimMarginsRequest):
             page_num=req.page,
             padding_pt=req.padding
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
         scope_str = "entire document" if req.page == 0 else f"page {req.page}"
-        return {"status": "success", "message": f"Margins trimmed for {scope_str}.", "info": info}
+        target_page = req.page if req.page > 0 else 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message=f"Margins trimmed for {scope_str}.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error trimming margins: {str(e)}")
 
@@ -1968,7 +1927,7 @@ async def scan_for_pii(doc_id: str, req: ScanPIIRequest):
 
 
 @app.post("/api/document/{doc_id}/auto-redact-pii")
-async def auto_redact_pii(doc_id: str, req: AutoRedactPIIRequest):
+async def auto_redact_pii(doc_id: str, req: AutoRedactPIIRequest, page: Optional[int] = Query(None)):
     """Apply permanent vector redactions to matched PII items and sanitize metadata."""
     doc = get_doc(doc_id)
     try:
@@ -1980,9 +1939,8 @@ async def auto_redact_pii(doc_id: str, req: AutoRedactPIIRequest):
             label=req.label,
             sanitize_metadata=bool(req.sanitize_metadata)
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"{len(req.items)} sensitive items permanently redacted.", "info": info}
+        target_p = page or (req.items[0].get("page", 1) if req.items else 1)
+        return save_and_bundle(doc_id, new_pdf, page_num=target_p, message=f"{len(req.items)} sensitive items permanently redacted.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error auto-redacting PII: {str(e)}")
 
@@ -2001,9 +1959,7 @@ async def add_text_markup(doc_id: str, req: TextMarkupRequest):
             search_text=req.search_text,
             color=req.color
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"{req.type.capitalize()} markup added.", "info": info}
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message=f"{req.type.capitalize()} markup added.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding text markup: {str(e)}")
 
@@ -2375,7 +2331,7 @@ async def direct_unlock_pdf(file: UploadFile = File(...), password: str = Form("
 
 
 @app.post("/api/document/{doc_id}/page-numbers")
-async def add_page_numbers(doc_id: str, req: PageNumberRequest):
+async def add_page_numbers(doc_id: str, req: PageNumberRequest, page: Optional[int] = Query(None)):
     """Add dynamic page numbering across PDF."""
     doc = get_doc(doc_id)
     try:
@@ -2389,9 +2345,8 @@ async def add_page_numbers(doc_id: str, req: PageNumberRequest):
             color=req.color,
             margin=req.margin
         )
-        save_new_version(doc_id, new_pdf)
-        info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Page numbers applied successfully.", "info": info}
+        target_page = page or req.start_page or 1
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Page numbers applied successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error applying page numbers: {str(e)}")
 
