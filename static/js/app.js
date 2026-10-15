@@ -51,12 +51,15 @@ const state = {
   shapesSubMode: "shapes",
   smartSnappingEnabled: true,
   historyTimeline: [],
-  selectedElements: []
+  selectedElements: [],
+  isPanMode: false
 };
 
 let activeTransformBox = null;
 let activeImageBox = null;
 let activeCropBox = null;
+window.state = state;
+Object.defineProperty(window, "activeTransformBox", { get: () => activeTransformBox, set: (v) => { activeTransformBox = v; }, configurable: true });
 
 // ==========================================================================
 // Typography Harmonization Engine (Plan Q4)
@@ -2114,9 +2117,71 @@ function setupViewerControls() {
     });
   }
 
-  // Ctrl + MouseWheel zoom on canvas
+  // Pointer & Hand / Pan Tool controls (Plan Q3)
+  const btnToolSelect = document.getElementById("btnToolSelect");
+  const btnToolHand = document.getElementById("btnToolHand");
+  if (btnToolSelect) {
+    btnToolSelect.addEventListener("click", () => {
+      setPanMode(false);
+      showToast("Pointer / Selection Tool (V)", "info");
+    });
+  }
+  if (btnToolHand) {
+    btnToolHand.addEventListener("click", () => {
+      setPanMode(true);
+      showToast("Hand / Pan Tool Active (H)", "info");
+    });
+  }
+
+  // Hotkey cheatsheet modal trigger
+  const btnHotkeyCheatsheet = document.getElementById("btnHotkeyCheatsheet");
+  if (btnHotkeyCheatsheet) {
+    btnHotkeyCheatsheet.addEventListener("click", () => {
+      toggleHotkeyCheatsheetModal();
+    });
+  }
+
   const canvasViewport = document.getElementById("canvasViewport");
+
+  // Pan / Hand tool dragging implementation on canvasViewport
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panStartScrollLeft = 0;
+  let panStartScrollTop = 0;
+
   if (canvasViewport) {
+    canvasViewport.addEventListener("mousedown", (e) => {
+      if (!state.isPanMode) return;
+      // Ignore if clicking inside interactive transform elements, buttons, or inputs
+      if (e.target.closest(".live-transform-box") || e.target.closest("button") || e.target.closest("input") || e.target.closest("select")) {
+        return;
+      }
+      isPanning = true;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      panStartScrollLeft = canvasViewport.scrollLeft;
+      panStartScrollTop = canvasViewport.scrollTop;
+      canvasViewport.classList.add("is-panning");
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      canvasViewport.scrollLeft = panStartScrollLeft - dx;
+      canvasViewport.scrollTop = panStartScrollTop - dy;
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (isPanning) {
+        isPanning = false;
+        canvasViewport.classList.remove("is-panning");
+      }
+    });
+
+    // Ctrl + MouseWheel zoom on canvas
     canvasViewport.addEventListener("wheel", (e) => {
       if (e.ctrlKey) {
         e.preventDefault();
@@ -4510,6 +4575,55 @@ function initLiveTextTransformBox(options = {}) {
     autoFitTextarea();
   };
 
+  box._nudge = (deltaPtX, deltaPtY) => {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+    const deltaPxX = deltaPtX / scaleX;
+    const deltaPxY = deltaPtY / scaleY;
+    const newL = Math.max(0, Math.min(curL + deltaPxX, overlayRect.width - curW));
+    const newT = Math.max(0, Math.min(curT + deltaPxY, overlayRect.height - curH));
+    box.style.left = `${newL}px`;
+    box.style.top = `${newT}px`;
+    leftPx = newL;
+    topPx = newT;
+    onBoxMoved(newL, newT, curW, curH, true);
+    updateToolbarPosition();
+  };
+
+  box._duplicate = () => {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+    const offsetPxX = 15.0 / scaleX;
+    const offsetPxY = 15.0 / scaleY;
+    const newL = Math.max(0, Math.min(curL + offsetPxX, overlayRect.width - curW));
+    const newT = Math.max(0, Math.min(curT + offsetPxY, overlayRect.height - curH));
+
+    initLiveTextTransformBox({
+      mode: "add",
+      text: textarea ? textarea.value : currentText,
+      fontSize: currentFontSize,
+      fontName: currentFontName,
+      fontFamily: currentFontFamily,
+      fontWeight: currentFontWeight,
+      letterSpacingPt: currentLetterSpacingPt,
+      lineHeightRatio: currentLineHeightRatio,
+      textColor: currentColor,
+      isBold: currentBold,
+      isItalic: currentItalic,
+      align: currentAlign,
+      isAutoHeight: isAutoHeight,
+      leftPx: newL,
+      topPx: newT,
+      widthPx: curW,
+      heightPx: curH
+    });
+    showToast("Text box duplicated (+15pt offset)", "info");
+  };
+
   if (btnDel) {
     btnDel.addEventListener("click", () => {
       showConfirmModal("Delete Text Block", "Permanently remove this text block from the document?", async () => {
@@ -4924,6 +5038,49 @@ function initLiveImageTransformBox(options = {}) {
   }
 
   box._triggerLayer = triggerImgLayer;
+  box._nudge = (deltaPtX, deltaPtY) => {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+    const deltaPxX = deltaPtX / scaleX;
+    const deltaPxY = deltaPtY / scaleY;
+    const newL = Math.max(0, Math.min(curL + deltaPxX, overlayRect.width - curW));
+    const newT = Math.max(0, Math.min(curT + deltaPxY, overlayRect.height - curH));
+    box.style.left = `${newL}px`;
+    box.style.top = `${newT}px`;
+    updateImgCoords();
+    updateImgToolbarPosition();
+  };
+
+  box._duplicate = () => {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+    const offsetPxX = 15.0 / scaleX;
+    const offsetPxY = 15.0 / scaleY;
+    const newL = Math.max(0, Math.min(curL + offsetPxX, overlayRect.width - curW));
+    const newT = Math.max(0, Math.min(curT + offsetPxY, overlayRect.height - curH));
+
+    const activeSrc = imgEl ? imgEl.src : (currentImgSrc || (options.divElement ? options.divElement.querySelector("img")?.src : null));
+
+    initLiveImageTransformBox({
+      mode: "insert",
+      imgSrc: activeSrc,
+      fileObj: currentFileObj || null,
+      rotation: currentRotation,
+      opacity: currentOpacity,
+      flipH: currentFlipH,
+      flipV: currentFlipV,
+      isRatioLocked: isRatioLocked,
+      leftPx: newL,
+      topPx: newT,
+      widthPx: curW,
+      heightPx: curH
+    });
+    showToast("Image duplicated (+15pt offset)", "info");
+  };
   const btnRatio = toolbar.querySelector(".tb-ratio-btn");
   btnRatio.addEventListener("click", () => {
     isRatioLocked = !isRatioLocked;
@@ -5607,6 +5764,47 @@ function initLiveShapeTransformBox(options = {}) {
       bbox: [ptX0, ptY0, ptX1, ptY1],
       color: hexToRgb(strokeColor)
     });
+  };
+
+  box._nudge = (deltaPtX, deltaPtY) => {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+    const deltaPxX = deltaPtX / scaleX;
+    const deltaPxY = deltaPtY / scaleY;
+    const newL = Math.max(0, Math.min(curL + deltaPxX, overlayRect.width - curW));
+    const newT = Math.max(0, Math.min(curT + deltaPxY, overlayRect.height - curH));
+    box.style.left = `${newL}px`;
+    box.style.top = `${newT}px`;
+    onBoxMoved(newL, newT, curW, curH, true);
+    renderShapeSvg();
+    updateShapeCoordBadge();
+    updateShapeToolbarPosition();
+  };
+
+  box._duplicate = () => {
+    const curL = parseFloat(box.style.left) || 0;
+    const curT = parseFloat(box.style.top) || 0;
+    const curW = box.offsetWidth;
+    const curH = box.offsetHeight;
+    const offsetPxX = 15.0 / scaleX;
+    const offsetPxY = 15.0 / scaleY;
+    const newL = Math.max(0, Math.min(curL + offsetPxX, overlayRect.width - curW));
+    const newT = Math.max(0, Math.min(curT + offsetPxY, overlayRect.height - curH));
+
+    initLiveShapeTransformBox({
+      mode: "insert",
+      shapeType: shapeType,
+      strokeColor: strokeColor,
+      fillColor: fillColor,
+      strokeWidth: strokeWidth,
+      leftPx: newL,
+      topPx: newT,
+      widthPx: curW,
+      heightPx: curH
+    });
+    showToast("Shape duplicated (+15pt offset)", "info");
   };
 
   box._syncFromSidebar = () => {
@@ -9254,7 +9452,10 @@ const COMMANDS = [
   { name: "All PDF Tools Directory", category: "Tools", action: () => window.showLandingPage() },
   { name: "View Revision History Timeline", category: "Edit", action: () => toggleHistoryDrawer() },
   { name: "Download Edited PDF", category: "File", action: () => btnDownload.click() },
-  { name: "Toggle Dark / Light Mode", category: "Theme", action: () => btnThemeToggle.click() }
+  { name: "Toggle Dark / Light Mode", category: "Theme", action: () => btnThemeToggle.click() },
+  { name: "Keyboard Shortcuts Cheatsheet (?)", category: "Help", action: () => toggleHotkeyCheatsheetModal() },
+  { name: "Pointer / Selection Tool (V)", category: "Tools", action: () => { setPanMode(false); document.querySelector('.tab-btn[data-tab="tab-edit"]')?.click(); } },
+  { name: "Hand / Pan Tool (H)", category: "Tools", action: () => setPanMode(true) }
 ];
 
 function setupCommandPalette() {
@@ -9327,75 +9528,213 @@ function highlightCommandItem(items, idx) {
 }
 
 // ==========================================================================
+function setPanMode(enable) {
+  state.isPanMode = Boolean(enable);
+  const btnSelect = document.getElementById("btnToolSelect");
+  const btnHand = document.getElementById("btnToolHand");
+  const vp = document.getElementById("canvasViewport");
+  const overlay = document.getElementById("interactiveOverlay");
+
+  if (state.isPanMode) {
+    if (btnHand) btnHand.classList.add("active");
+    if (btnSelect) btnSelect.classList.remove("active");
+    if (vp) vp.classList.add("pan-mode-active");
+    if (overlay) overlay.style.cursor = "grab";
+  } else {
+    if (btnSelect) btnSelect.classList.add("active");
+    if (btnHand) btnHand.classList.remove("active");
+    if (vp) {
+      vp.classList.remove("pan-mode-active");
+      vp.classList.remove("is-panning");
+    }
+    if (overlay) {
+      overlay.style.cursor = state.activeTab === "tab-add" ? "text" : (state.activeTab === "tab-shapes" ? "crosshair" : "default");
+    }
+  }
+}
+window.setPanMode = setPanMode;
+
+function activateShapeTypeMode(type) {
+  const shapesTab = document.querySelector('.tab-btn[data-tab="tab-shapes"]');
+  if (shapesTab && state.activeTab !== "tab-shapes") {
+    shapesTab.click();
+  }
+  const shapeTypeSelect = document.getElementById("shapeType");
+  if (shapeTypeSelect) {
+    shapeTypeSelect.value = type;
+    shapeTypeSelect.dispatchEvent(new Event("change"));
+  }
+  if (activeTransformBox && activeTransformBox.classList.contains("mode-shape")) {
+    const sel = activeTransformBox.querySelector(".tb-shape-type-select");
+    if (sel) {
+      sel.value = type;
+      sel.dispatchEvent(new Event("change"));
+    }
+  }
+}
+window.activateShapeTypeMode = activateShapeTypeMode;
+
+function toggleHotkeyCheatsheetModal(show) {
+  const modal = document.getElementById("hotkeyCheatsheetModal");
+  if (!modal) return;
+  const isCurrentlyOpen = modal.classList.contains("open") || modal.classList.contains("active");
+  const shouldOpen = show !== undefined ? Boolean(show) : !isCurrentlyOpen;
+  if (shouldOpen) {
+    modal.classList.add("open");
+  } else {
+    modal.classList.remove("open");
+  }
+}
+window.toggleHotkeyCheatsheetModal = toggleHotkeyCheatsheetModal;
+
 // Keyboard Shortcuts
 // ==========================================================================
 
 function setupKeyboardShortcuts() {
+  let spacebarPanning = false;
+
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space" && spacebarPanning) {
+      spacebarPanning = false;
+      setPanMode(false);
+    }
+  });
+
   document.addEventListener("keydown", (e) => {
     const tag = (e.target.tagName || "").toLowerCase();
     const isTyping = tag === "input" || tag === "textarea" || e.target.isContentEditable;
 
+    // Temporary Pan on holding Spacebar (when not typing)
+    if (!isTyping && e.code === "Space" && !e.repeat && !state.isPanMode) {
+      spacebarPanning = true;
+      setPanMode(true);
+      e.preventDefault();
+      return;
+    }
+
     // Ctrl+Z: Undo
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "z") {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
       e.preventDefault();
       if (btnUndo && !btnUndo.disabled) btnUndo.click();
       return;
     }
 
     // Ctrl+Y or Ctrl+Shift+Z: Redo
-    if ((e.ctrlKey && e.key.toLowerCase() === "y") || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "z")) {
+    if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z")) {
       e.preventDefault();
       if (btnRedo && !btnRedo.disabled) btnRedo.click();
       return;
     }
 
-    // Ctrl+S: Download PDF
-    if (e.ctrlKey && e.key.toLowerCase() === "s") {
+    // Ctrl+S / Cmd+S: Download PDF
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       btnDownload.click();
       return;
     }
 
-    // Ctrl+F: Find
-    if (e.ctrlKey && e.key.toLowerCase() === "f") {
+    // Ctrl+F / Cmd+F: Find
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
       e.preventDefault();
       toggleSearchBar();
       return;
     }
 
-    // Ctrl+K: Command Palette
-    if (e.ctrlKey && e.key.toLowerCase() === "k") {
+    // Ctrl+K / Cmd+K: Command Palette
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       openCommandPalette();
       return;
     }
 
-    // Layer Depth Shortcuts: Ctrl+], Ctrl+[, Alt+], Alt+[
+    // Ctrl+D / Cmd+D: Duplicate active element (+15pt offset)
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+      if (activeTransformBox && typeof activeTransformBox._duplicate === "function") {
+        e.preventDefault();
+        activeTransformBox._duplicate();
+        return;
+      }
+    }
+
+    // Layer Depth Shortcuts:
+    // Ctrl+Shift+] -> Bring to Front
+    // Ctrl+Shift+[ -> Send to Back
+    // Ctrl+] / Alt+] -> Bring Forward (1 step)
+    // Ctrl+[ / Alt+[ -> Send Backward (1 step)
     if (activeTransformBox) {
-      if (e.ctrlKey && e.key === "]") {
+      const isRightBracket = e.code === "BracketRight" || e.key === "]" || e.key === "}";
+      const isLeftBracket = e.code === "BracketLeft" || e.key === "[" || e.key === "{";
+
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && isRightBracket) {
         e.preventDefault();
         activeTransformBox._triggerLayer?.("bring_to_front");
         return;
       }
-      if (e.ctrlKey && e.key === "[") {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && isLeftBracket) {
         e.preventDefault();
         activeTransformBox._triggerLayer?.("send_to_back");
         return;
       }
-      if (e.altKey && e.key === "]") {
+      if (((e.ctrlKey || e.metaKey) && !e.shiftKey && isRightBracket) || (e.altKey && isRightBracket)) {
         e.preventDefault();
         activeTransformBox._triggerLayer?.("bring_forward");
         return;
       }
-      if (e.altKey && e.key === "[") {
+      if (((e.ctrlKey || e.metaKey) && !e.shiftKey && isLeftBracket) || (e.altKey && isLeftBracket)) {
         e.preventDefault();
         activeTransformBox._triggerLayer?.("send_backward");
         return;
       }
     }
 
-    // Escape: Close modals, search bar, wysiwyg, cancel transform box, cancel measurements, deselect form field
+    // Arrow Key Nudge Precision Engine (1pt default, 10pt with Shift, Alt+Arrow while typing)
+    const isArrow = e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown";
+    if (isArrow && activeTransformBox) {
+      const allowNudge = !isTyping || e.altKey;
+      if (allowNudge) {
+        e.preventDefault();
+        const stepPt = e.shiftKey ? 10.0 : 1.0;
+        let deltaPtX = 0;
+        let deltaPtY = 0;
+        if (e.key === "ArrowLeft") deltaPtX = -stepPt;
+        else if (e.key === "ArrowRight") deltaPtX = stepPt;
+        else if (e.key === "ArrowUp") deltaPtY = -stepPt;
+        else if (e.key === "ArrowDown") deltaPtY = stepPt;
+
+        if (typeof activeTransformBox._nudge === "function") {
+          activeTransformBox._nudge(deltaPtX, deltaPtY);
+        }
+        return;
+      }
+    }
+
+    // Delete / Backspace: Delete active selection (confirm modal if permanent element)
+    if (!isTyping && (e.key === "Delete" || e.key === "Backspace")) {
+      if (activeTransformBox) {
+        e.preventDefault();
+        const delBtn = activeTransformBox.querySelector(".btn-delete");
+        if (delBtn) {
+          delBtn.click();
+        } else {
+          cancelTransformBox(false);
+          showToast("Element discarded", "info");
+        }
+        return;
+      }
+      if (state.selectedFormField) {
+        e.preventDefault();
+        if (typeof deleteSelectedField === "function") deleteSelectedField();
+        return;
+      }
+    }
+
+    // Escape: Close cheatsheet modal, modals, search bar, wysiwyg, cancel transform box, cancel measurements, deselect form field
     if (e.key === "Escape") {
+      const cheatsheet = document.getElementById("hotkeyCheatsheetModal");
+      if (cheatsheet && (cheatsheet.classList.contains("open") || cheatsheet.classList.contains("active"))) {
+        closeModal("hotkeyCheatsheetModal");
+        return;
+      }
       if (activeTransformBox) cancelTransformBox(false);
       if (typeof activeWysiwygBox !== "undefined" && activeWysiwygBox) cancelWysiwyg();
       closeSearchBar();
@@ -9419,7 +9758,74 @@ function setupKeyboardShortcuts() {
       return;
     }
 
-    // Page Navigation when NOT typing
+    // Single-key hotkeys when NOT typing and NO modifier keys pressed
+    if (!isTyping && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // ?: Keyboard Shortcuts Cheatsheet Modal
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        toggleHotkeyCheatsheetModal();
+        return;
+      }
+
+      const keyLow = e.key.toLowerCase();
+
+      // V: Pointer / Selection Tool
+      if (keyLow === "v") {
+        e.preventDefault();
+        setPanMode(false);
+        const editTab = document.querySelector('.tab-btn[data-tab="tab-edit"]');
+        if (editTab && state.activeTab !== "tab-edit") editTab.click();
+        showToast("Pointer / Selection Tool (V)", "info");
+        return;
+      }
+
+      // H: Hand / Pan Tool
+      if (keyLow === "h") {
+        e.preventDefault();
+        setPanMode(!state.isPanMode);
+        showToast(state.isPanMode ? "Hand / Pan Tool Active (H)" : "Pointer Tool Active (V)", "info");
+        return;
+      }
+
+      // T: Click-to-Type Text placement
+      if (keyLow === "t") {
+        e.preventDefault();
+        setPanMode(false);
+        const addTab = document.querySelector('.tab-btn[data-tab="tab-add"]');
+        if (addTab) addTab.click();
+        showToast("Click-to-Type Text Mode (T)", "info");
+        return;
+      }
+
+      // R: Rectangle Shape Tool
+      if (keyLow === "r") {
+        e.preventDefault();
+        setPanMode(false);
+        activateShapeTypeMode("rect");
+        showToast("Rectangle Shape Tool (R)", "info");
+        return;
+      }
+
+      // O: Circle / Ellipse Shape Tool
+      if (keyLow === "o") {
+        e.preventDefault();
+        setPanMode(false);
+        activateShapeTypeMode("circle");
+        showToast("Circle Shape Tool (O)", "info");
+        return;
+      }
+
+      // L: Line Shape Tool
+      if (keyLow === "l") {
+        e.preventDefault();
+        setPanMode(false);
+        activateShapeTypeMode("line");
+        showToast("Line Shape Tool (L)", "info");
+        return;
+      }
+    }
+
+    // Page Navigation when NOT typing and NO transform box is being nudged
     if (!isTyping && state.docId) {
       if (e.key === "ArrowLeft" || e.key === "PageUp" || e.key === "k") {
         e.preventDefault();

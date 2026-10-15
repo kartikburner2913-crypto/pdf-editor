@@ -579,32 +579,41 @@ Smallpdf requires users to position text, images, and shapes completely by eye. 
 
 ### Plan Q3: Power-User Hotkey Suite & 1pt/10pt Precision Nudge Engine
 
+**Status:** Implemented (PASS)  
 **Difficulty:** Low-Medium  
 **Estimated Effort:** 1.5-2 days  
-**Target Areas:** `static/js/app.js`, `templates/index.html`
+**Target Areas:** `static/js/app.js`, `templates/index.html`, `static/css/style.css`, `tests/test_hotkey_suite_precision_nudge.py`
 
 #### Problem Analysis
 Power users and professionals find purely mouse-driven document manipulation slow and fatiguing. Smallpdf offers almost zero keyboard shortcuts.
 
-#### Architectural Specification
-1. **Arrow Key Nudge Precision Engine:**
-   - When any transform box (text, shape, image) is selected:
-     - `Arrow Keys` (Left/Right/Up/Down): Nudge element position by exactly `1 pt` (in PDF coordinate space).
-     - `Shift + Arrow Keys`: Nudge position by exactly `10 pt`.
-     - Live coordinate pill and sidebar inputs update instantaneously during nudging.
-2. **Document & Canvas Global Hotkeys:**
-   - `V`: Switch to Selection / Pointer Tool.
-   - `H`: Switch to Hand / Pan Tool.
-   - `T`: Activate Click-to-Type Text placement.
-   - `R`: Activate Rectangle shape draw mode.
-   - `O`: Activate Circle / Ellipse shape draw mode.
-   - `L`: Activate Line shape draw mode.
-   - `Delete` / `Backspace`: Delete active selection (with confirmation modal for permanent elements).
-   - `Ctrl + D` / `Cmd + D`: Duplicate active element with an automatic +15pt offset.
-   - `Ctrl + [` / `Ctrl + ]`: Send Backward / Bring Forward in layer stack.
-   - `Ctrl + Shift + [` / `Ctrl + Shift + ]`: Send to Back / Bring to Front.
+#### Implementation Summary
+1. **Arrow Key Nudge Precision Engine (`static/js/app.js`):**
+   - Attached `_nudge(deltaPtX, deltaPtY)` across all live transform boxes (Text, Image, Shape).
+   - Plain `Arrow Keys` (Left/Right/Up/Down): Nudge element position by exactly `1 pt` (in PDF coordinate space).
+   - `Shift + Arrow Keys`: Fast nudge element position by exactly `10 pt`.
+   - `Alt + Arrow Keys`: Precision nudge even while focused/typing inside textarea without losing caret.
+   - Synchronous bounds clamping within canvas overlay, real-time coordinate badge updates, and bidirectional sync to sidebar coordinate inputs (`newTextX/Y`, `imgX/Y`, `shapeStartX/Y`).
+   - Normal page navigation (`ArrowLeft` / `ArrowRight`) preserved when no element is selected.
+2. **Document & Canvas Global Hotkeys (`static/js/app.js`, `templates/index.html`):**
+   - `V`: Switch to Selection / Pointer Tool (`btnToolSelect`).
+   - `H`: Switch to Hand / Pan Tool (`btnToolHand`), enabling smooth viewport click-and-drag panning.
+   - `Spacebar`: Hold for temporary canvas panning, release to return to previous tool.
+   - `T`: Activate Click-to-Type Text placement mode (`tab-add`).
+   - `R`: Activate Rectangle shape draw mode (`shapeType = "rect"`).
+   - `O`: Activate Circle / Ellipse shape draw mode (`shapeType = "circle"`).
+   - `L`: Activate Line shape draw mode (`shapeType = "line"`).
+   - `Delete` / `Backspace`: Delete active element (confirm modal for permanent elements, discard for unsaved).
+   - `Ctrl + D` / `Cmd + D`: Duplicate active element with an automatic +15pt offset in PDF space.
+   - `Ctrl + ]` / `Ctrl + [`: Bring Forward / Send Backward in layer stack.
+   - `Ctrl + Shift + ]` / `Ctrl + Shift + [`: Bring to Front / Send to Back.
    - `Ctrl + S`: Quick download / save.
    - `?`: Toggle sleek keyboard shortcuts cheatsheet modal.
+3. **Keyboard Shortcuts Cheatsheet Modal (`templates/index.html`, `static/css/style.css`):**
+   - Responsive multi-card modal categorized into Precision Nudge, Tools & Canvas Navigation, Selection & Layer Stack, and Document & Viewport.
+   - Styled with dark/light mode compatible `<kbd>` badges and design tokens.
+4. **Automated Verification:**
+   - Dedicated test suite `tests/test_hotkey_suite_precision_nudge.py` covering HTML structure, CSS rules, JavaScript bindings, zero emoji assertions, and mathematical node coordinate assertions (128 / 128 tests passing).
 
 ---
 
