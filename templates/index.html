@@ -54,6 +54,14 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path></svg>
           <span>Redo</span>
         </button>
+        <button id="btnHistoryTimeline" class="btn btn-nav-icon" title="View Document History Timeline" aria-label="Document History Timeline">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+          <span>History</span>
+        </button>
+        <div id="optimisticSaveBadge" class="optimistic-save-badge saved" style="display: none;" title="Auto-save status">
+          <svg class="optimistic-check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span class="optimistic-status-text">Saved</span>
+        </div>
         <button id="btnTopCompare" class="btn btn-nav-icon hide-mobile-portrait" title="Compare with Another PDF" aria-label="Compare with Another PDF">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="8" height="18" rx="2"></rect><rect x="14" y="3" width="8" height="18" rx="2"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
           <span>Compare</span>
@@ -2790,6 +2798,29 @@
           </div>
         </div>
         <div class="preview-list" id="previewList"></div>
+      </aside>
+
+      <!-- Document Revision & Mutation History Drawer (Plan Q5) -->
+      <aside id="historyTimelineDrawer" class="history-timeline-drawer" style="display: none;">
+        <div class="history-drawer-header">
+          <div class="history-drawer-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+            <h4>Revision History</h4>
+          </div>
+          <div class="history-drawer-actions">
+            <button id="btnRevertToOriginal" class="btn btn-outline btn-sm" title="Revert to original document">Revert</button>
+            <button id="btnCloseHistoryDrawer" class="panel-action-btn" title="Close History" aria-label="Close History">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        </div>
+        <div class="history-drawer-sub">
+          <span id="historyTimelineDocName">document.pdf</span>
+          <span id="historyTimelineCount" class="history-count-badge">1 revision</span>
+        </div>
+        <div class="history-timeline-list" id="historyTimelineList">
+          <!-- Dynamically populated timeline cards -->
+        </div>
       </aside>
     </section>
   </main>

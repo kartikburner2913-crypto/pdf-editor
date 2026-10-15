@@ -7034,3 +7034,378 @@ body.mobile-drawer-open {
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.35));
 }
 
+/* ==========================================================================
+   Plan Q5: Zero-Latency Optimistic UI & Visual Undo/Redo Timeline
+   ========================================================================== */
+
+/* 1. Subtle Non-Blocking Save Status Pill */
+.optimistic-save-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 9999px;
+  transition: all 0.25s ease;
+  pointer-events: none;
+  z-index: 100;
+  margin-left: 6px;
+}
+
+.optimistic-save-badge.saving {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--primary, #3b82f6);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.optimistic-save-badge.saved {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.optimistic-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(59, 130, 246, 0.3);
+  border-top-color: var(--primary, #3b82f6);
+  border-radius: 50%;
+  animation: optSpin 0.7s linear infinite;
+}
+
+@keyframes optSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 2. Visual Undo/Redo Revision History Drawer */
+.history-timeline-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 320px;
+  max-width: 90vw;
+  height: 100%;
+  background: var(--bg-surface, #ffffff);
+  border-left: 1px solid var(--border-color, #e2e8f0);
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08);
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  animation: slideDrawerIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDrawerIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+[data-theme="dark"] .history-timeline-drawer {
+  background: #0f172a;
+  border-color: #334155;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.45);
+}
+
+.history-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+[data-theme="dark"] .history-drawer-header {
+  border-color: #334155;
+}
+
+.history-drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-drawer-title h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main, #1e293b);
+}
+
+[data-theme="dark"] .history-drawer-title h4 {
+  color: #f8fafc;
+}
+
+.history-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-drawer-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+[data-theme="dark"] .history-drawer-sub {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+.history-count-badge {
+  background: var(--bg-surface-elevated, #f1f5f9);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .history-count-badge {
+  background: #1e293b;
+  color: #cbd5e1;
+}
+
+.history-timeline-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-surface-elevated, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+[data-theme="dark"] .history-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.history-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--primary, #3b82f6);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.history-card.active {
+  border-color: var(--primary, #3b82f6);
+  background: rgba(59, 130, 246, 0.06);
+  box-shadow: 0 0 0 1.5px var(--primary, #3b82f6);
+}
+
+[data-theme="dark"] .history-card.active {
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.history-card-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--primary, #3b82f6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.history-card-icon.type-delete {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.history-card-icon.type-shape {
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+}
+
+.history-card-icon.type-image {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.history-card-icon.type-upload {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.history-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.history-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main, #0f172a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme="dark"] .history-card-title {
+  color: #f1f5f9;
+}
+
+.history-version-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--border-color, #e2e8f0);
+  color: var(--text-muted, #64748b);
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .history-version-pill {
+  background: #334155;
+  color: #cbd5e1;
+}
+
+.history-card.active .history-version-pill {
+  background: var(--primary, #3b82f6);
+  color: #ffffff;
+}
+
+.history-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+}
+
+[data-theme="dark"] .history-card-meta {
+  color: #94a3b8;
+}
+
+.history-card-current-tag {
+  display: none;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--primary, #3b82f6);
+}
+
+.history-card.active .history-card-current-tag {
+  display: inline;
+}
+
+/* 3. Canvas Rubber-Band Marquee Selection */
+.canvas-marquee-selection {
+  position: absolute;
+  pointer-events: none;
+  border: 1.5px dashed var(--primary, #3b82f6);
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 2px;
+  z-index: 38;
+}
+
+/* 4. Multi-Selection Highlighting */
+.text-block-highlight.is-multi-selected,
+.shape-annotation-wrapper.is-multi-selected,
+.canvas-image-overlay.is-multi-selected {
+  outline: 2px solid var(--primary, #3b82f6) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3) !important;
+  z-index: 36 !important;
+}
+
+/* 5. Floating Multi-Selection Action Toolbar */
+.multi-select-toolbar {
+  position: absolute;
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.08);
+  transform: translateX(-50%);
+  animation: fadeInQuick 0.15s ease;
+}
+
+[data-theme="dark"] .multi-select-toolbar {
+  background: rgba(15, 23, 42, 0.95);
+  border-color: #334155;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.multi-select-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary, #3b82f6);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.1);
+  white-space: nowrap;
+}
+
+.multi-select-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-color, #e2e8f0);
+}
+
+[data-theme="dark"] .multi-select-divider {
+  background: #334155;
+}
+
+.multi-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-main, #1e293b);
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+[data-theme="dark"] .multi-select-btn {
+  color: #f1f5f9;
+}
+
+.multi-select-btn:hover {
+  background: var(--bg-surface-elevated, #f1f5f9);
+}
+
+[data-theme="dark"] .multi-select-btn:hover {
+  background: #1e293b;
+}
+
+.multi-select-btn.btn-delete:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+

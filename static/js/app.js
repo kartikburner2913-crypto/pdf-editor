@@ -49,7 +49,9 @@ const state = {
   pendingTargetTab: null,
   pendingSubAction: null,
   shapesSubMode: "shapes",
-  smartSnappingEnabled: true
+  smartSnappingEnabled: true,
+  historyTimeline: [],
+  selectedElements: []
 };
 
 let activeTransformBox = null;
@@ -304,6 +306,16 @@ const btnDownload = document.getElementById("btnDownload");
 const btnNewDoc = document.getElementById("btnNewDoc");
 const btnThemeToggle = document.getElementById("btnThemeToggle");
 const btnCommandPalette = document.getElementById("btnCommandPalette");
+
+// Plan Q5: History Timeline & Optimistic UI Controls
+const btnHistoryTimeline = document.getElementById("btnHistoryTimeline");
+const optimisticSaveBadge = document.getElementById("optimisticSaveBadge");
+const historyTimelineDrawer = document.getElementById("historyTimelineDrawer");
+const btnCloseHistoryDrawer = document.getElementById("btnCloseHistoryDrawer");
+const btnRevertToOriginal = document.getElementById("btnRevertToOriginal");
+const historyTimelineDocName = document.getElementById("historyTimelineDocName");
+const historyTimelineCount = document.getElementById("historyTimelineCount");
+const historyTimelineList = document.getElementById("historyTimelineList");
 
 // Navigation & Preview
 const btnToggleThumbnails = document.getElementById("btnToggleThumbnails");
@@ -672,6 +684,14 @@ async function handlePdfUpload(file, password = null) {
     updateZoomSelectLabel();
 
     updateUndoRedoButtons(false, false);
+    state.historyTimeline = data.history || [{
+      version: 0,
+      action_title: "Original Document Uploaded",
+      action_type: "upload",
+      page: 1,
+      timestamp: new Date().toISOString()
+    }];
+    if (typeof renderHistoryDrawerTimeline === "function") renderHistoryDrawerTimeline();
     updatePageOrderInput();
     if (typeof splitState !== "undefined") {
       splitState.selectedPages.clear();
@@ -721,6 +741,364 @@ function updateUndoRedoButtons(canUndo, canRedo) {
   if (canUndo) invalidatePageCache();
   if (btnUndo) btnUndo.disabled = !canUndo;
   if (btnRedo) btnRedo.disabled = !canRedo;
+}
+
+// ==========================================================================
+// Plan Q5: Zero-Latency Optimistic UI & Visual Undo/Redo Timeline Engine
+// ==========================================================================
+
+let optimisticStatusTimer = null;
+function setOptimisticStatus(status, text) {
+  const badge = document.getElementById("optimisticSaveBadge");
+  if (!badge) return;
+  if (optimisticStatusTimer) {
+    clearTimeout(optimisticStatusTimer);
+    optimisticStatusTimer = null;
+  }
+  if (!status) {
+    badge.style.display = "none";
+    return;
+  }
+  badge.style.display = "inline-flex";
+  badge.style.opacity = "1";
+  if (status === "saving") {
+    badge.className = "optimistic-save-badge saving";
+    badge.innerHTML = `
+      <div class="optimistic-spinner"></div>
+      <span class="optimistic-status-text">${escapeHtml(text || "Saving changes...")}</span>
+    `;
+  } else if (status === "saved") {
+    badge.className = "optimistic-save-badge saved";
+    badge.innerHTML = `
+      <svg class="optimistic-check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      <span class="optimistic-status-text">${escapeHtml(text || "All changes saved")}</span>
+    `;
+    optimisticStatusTimer = setTimeout(() => {
+      if (badge && badge.classList.contains("saved")) {
+        badge.style.opacity = "0.6";
+      }
+    }, 3200);
+  }
+}
+
+const mutationQueue = [];
+let isProcessingMutationQueue = false;
+
+async function queueOptimisticMutation(taskFn, rollbackFn = null, options = {}) {
+  mutationQueue.push({ taskFn, rollbackFn, options });
+  processMutationQueue();
+}
+
+async function processMutationQueue() {
+  if (isProcessingMutationQueue || mutationQueue.length === 0) return;
+  isProcessingMutationQueue = true;
+  setOptimisticStatus("saving", "Saving changes...");
+
+  while (mutationQueue.length > 0) {
+    const item = mutationQueue.shift();
+    try {
+      const result = await item.taskFn();
+      if (result && (result.version !== undefined || result.page_bundle || result.history)) {
+        await applyMutationResponse(result, state.currentPage);
+      }
+    } catch (err) {
+      console.error("Optimistic mutation failed:", err);
+      showToast(err.message || "Failed to persist change", "error");
+      if (typeof item.rollbackFn === "function") {
+        try { item.rollbackFn(); } catch (rErr) { console.error("Rollback error:", rErr); }
+      }
+      await loadPage(state.currentPage);
+    }
+  }
+
+  isProcessingMutationQueue = false;
+  setOptimisticStatus("saved", "All changes saved");
+}
+
+function getActionTypeSvgIcon(actionType) {
+  const type = String(actionType || "edit").toLowerCase();
+  if (type === "delete") {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+  } else if (type === "shape") {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="12 8 8 16 16 16"></polygon></svg>`;
+  } else if (type === "image") {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+  } else if (type === "upload") {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+  } else if (type === "rotate") {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>`;
+  }
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
+}
+
+function renderHistoryDrawerTimeline() {
+  if (!historyTimelineList) return;
+  if (historyTimelineDocName) {
+    historyTimelineDocName.textContent = state.filename || "document.pdf";
+  }
+  const timeline = state.historyTimeline || [];
+  if (historyTimelineCount) {
+    const revCount = timeline.length;
+    historyTimelineCount.textContent = `${revCount} revision${revCount !== 1 ? 's' : ''}`;
+  }
+
+  historyTimelineList.innerHTML = "";
+  if (timeline.length === 0) {
+    historyTimelineList.innerHTML = `
+      <div style="padding: 32px 16px; text-align: center; color: var(--text-muted, #94a3b8); font-size: 12px;">
+        No revision history available.
+      </div>
+    `;
+    return;
+  }
+
+  const sorted = [...timeline].reverse();
+  sorted.forEach(item => {
+    const card = document.createElement("div");
+    const isActive = item.version === state.docVersion;
+    card.className = `history-card ${isActive ? 'active' : ''}`;
+    card.dataset.version = String(item.version);
+
+    let timeStr = "";
+    if (item.timestamp) {
+      try {
+        const d = new Date(item.timestamp);
+        timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch (e) {
+        timeStr = "";
+      }
+    }
+
+    const type = item.action_type || "edit";
+    card.innerHTML = `
+      <div class="history-card-icon type-${escapeHtml(type)}">
+        ${getActionTypeSvgIcon(type)}
+      </div>
+      <div class="history-card-body">
+        <div class="history-card-header">
+          <span class="history-card-title" title="${escapeHtml(item.action_title)}">${escapeHtml(item.action_title)}</span>
+          <span class="history-version-pill">v${item.version}</span>
+        </div>
+        <div class="history-card-meta">
+          <span>Page ${item.page || 1}</span>
+          ${timeStr ? `<span>•</span><span>${timeStr}</span>` : ''}
+          <span class="history-card-current-tag">Current</span>
+        </div>
+      </div>
+    `;
+
+    card.addEventListener("click", () => {
+      jumpToRevision(item.version);
+    });
+
+    historyTimelineList.appendChild(card);
+  });
+}
+
+function toggleHistoryDrawer(forceState) {
+  if (!historyTimelineDrawer) return;
+  const shouldOpen = forceState !== undefined ? forceState : (historyTimelineDrawer.style.display === "none");
+  if (shouldOpen) {
+    historyTimelineDrawer.style.display = "flex";
+    if (btnHistoryTimeline) btnHistoryTimeline.classList.add("active");
+    if (state.docId) {
+      fetch(`/api/document/${state.docId}/history`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.history) {
+            state.historyTimeline = data.history;
+            renderHistoryDrawerTimeline();
+          }
+        }).catch(() => {});
+    }
+    renderHistoryDrawerTimeline();
+  } else {
+    historyTimelineDrawer.style.display = "none";
+    if (btnHistoryTimeline) btnHistoryTimeline.classList.remove("active");
+  }
+}
+
+async function jumpToRevision(targetVersion) {
+  if (!state.docId) return;
+  if (targetVersion === state.docVersion) return;
+
+  setOptimisticStatus("saving", "Time traveling to revision...");
+  try {
+    const res = await fetch(`/api/document/${state.docId}/jump-to-version/${targetVersion}?page=${state.currentPage}&zoom=${state.zoom}`, {
+      method: "POST"
+    });
+    if (!res.ok) throw new Error("Failed to jump to revision");
+    const data = await res.json();
+    deselectFormField();
+    cancelTransformBox(false);
+    clearMultiSelection();
+    showToast(`Jumped to revision v${targetVersion}`, "info");
+    await applyMutationResponse(data, state.currentPage);
+    await loadFormFields();
+    setOptimisticStatus("saved", "All changes saved");
+  } catch (err) {
+    showToast(err.message, "error");
+    setOptimisticStatus("saved", "Error");
+  }
+}
+
+// Multi-Selection State & Toolbar Controller
+function updateMultiSelectToolbar() {
+  let bar = document.getElementById("multiSelectToolbar");
+  if (!state.selectedElements || state.selectedElements.length === 0) {
+    if (bar) bar.style.display = "none";
+    return;
+  }
+
+  const overlay = document.getElementById("interactiveOverlay");
+  if (!bar && overlay) {
+    bar = document.createElement("div");
+    bar.id = "multiSelectToolbar";
+    bar.className = "multi-select-toolbar";
+    bar.innerHTML = `
+      <span class="multi-select-count" id="multiSelectCount">0 items</span>
+      <div class="multi-select-divider"></div>
+      <button type="button" class="multi-select-btn btn-delete" id="btnBatchDelete">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        <span>Delete Selected</span>
+      </button>
+      <div class="multi-select-divider"></div>
+      <button type="button" class="multi-select-btn" id="btnClearMultiSelect" title="Deselect all">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <span>Clear</span>
+      </button>
+    `;
+    overlay.appendChild(bar);
+
+    const btnBatchDelete = bar.querySelector("#btnBatchDelete");
+    if (btnBatchDelete) {
+      btnBatchDelete.addEventListener("click", (e) => {
+        e.stopPropagation();
+        executeBatchDelete();
+      });
+    }
+
+    const btnClearMultiSelect = bar.querySelector("#btnClearMultiSelect");
+    if (btnClearMultiSelect) {
+      btnClearMultiSelect.addEventListener("click", (e) => {
+        e.stopPropagation();
+        clearMultiSelection();
+      });
+    }
+  }
+
+  if (!bar) return;
+  const countSpan = bar.querySelector("#multiSelectCount");
+  if (countSpan) {
+    const len = state.selectedElements.length;
+    countSpan.textContent = `${len} item${len !== 1 ? 's' : ''} selected`;
+  }
+
+  let minLeft = Infinity, minTop = Infinity, maxRight = -Infinity;
+  state.selectedElements.forEach(item => {
+    if (item.element) {
+      const l = parseFloat(item.element.style.left) || 0;
+      const t = parseFloat(item.element.style.top) || 0;
+      const w = parseFloat(item.element.style.width) || 0;
+      if (l < minLeft) minLeft = l;
+      if (t < minTop) minTop = t;
+      if (l + w > maxRight) maxRight = l + w;
+    }
+  });
+
+  if (minLeft < Infinity) {
+    const centerX = (minLeft + maxRight) / 2;
+    const topY = Math.max(10, minTop - 42);
+    bar.style.left = `${centerX}px`;
+    bar.style.top = `${topY}px`;
+  } else {
+    bar.style.left = "50%";
+    bar.style.top = "16px";
+  }
+  bar.style.display = "flex";
+}
+
+function toggleElementMultiSelect(item) {
+  if (!state.selectedElements) state.selectedElements = [];
+  const idx = state.selectedElements.findIndex(s => {
+    if (s.type !== item.type) return false;
+    if (item.type === "text") return s.block && item.block && s.block.id === item.block.id;
+    if (item.type === "annot") return s.annot && item.annot && s.annot.index === item.annot.index;
+    return s.element === item.element;
+  });
+
+  if (idx >= 0) {
+    state.selectedElements.splice(idx, 1);
+    if (item.element) item.element.classList.remove("is-multi-selected");
+  } else {
+    state.selectedElements.push(item);
+    if (item.element) item.element.classList.add("is-multi-selected");
+  }
+  updateMultiSelectToolbar();
+}
+
+function clearMultiSelection() {
+  if (state.selectedElements && state.selectedElements.length > 0) {
+    state.selectedElements.forEach(item => {
+      if (item.element) item.element.classList.remove("is-multi-selected");
+    });
+  }
+  state.selectedElements = [];
+  const bar = document.getElementById("multiSelectToolbar");
+  if (bar) bar.style.display = "none";
+}
+
+async function executeBatchDelete() {
+  if (!state.selectedElements || state.selectedElements.length === 0) return;
+  const count = state.selectedElements.length;
+
+  showConfirmModal("Delete Selected Elements", `Permanently delete all ${count} selected item${count !== 1 ? 's' : ''}?`, async () => {
+    const textEdits = [];
+    const annotIndices = [];
+
+    state.selectedElements.forEach(item => {
+      if (item.type === "text" && item.block) {
+        textEdits.push({
+          page: state.currentPage,
+          bbox: item.block.bbox,
+          lines: item.block.lines,
+          new_text: "",
+          bg_color: null
+        });
+      } else if (item.type === "annot" && item.annot && item.annot.index !== undefined) {
+        annotIndices.push(item.annot.index);
+      }
+    });
+
+    const itemsToRollback = [...state.selectedElements];
+    itemsToRollback.forEach(it => {
+      if (it.element) it.element.style.display = "none";
+    });
+    clearMultiSelection();
+
+    queueOptimisticMutation(
+      async () => {
+        const res = await fetch(`/api/document/${state.docId}/batch-delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            page: state.currentPage,
+            text_edits: textEdits.length > 0 ? textEdits : null,
+            annot_indices: annotIndices.length > 0 ? annotIndices : null
+          })
+        });
+        if (!res.ok) throw new Error("Failed to delete selected elements");
+        const data = await res.json();
+        showToast(`Deleted ${count} item${count !== 1 ? 's' : ''}`, "success");
+        return data;
+      },
+      () => {
+        itemsToRollback.forEach(it => {
+          if (it.element) it.element.style.display = "";
+        });
+      }
+    );
+  });
 }
 
 // ==========================================================================
@@ -903,6 +1281,13 @@ async function applyMutationResponse(data, targetPage = state.currentPage) {
     state.totalPages = data.info.page_count || state.totalPages;
   }
 
+  if (data && data.history) {
+    state.historyTimeline = data.history;
+    if (typeof renderHistoryDrawerTimeline === "function") {
+      renderHistoryDrawerTimeline();
+    }
+  }
+
   if (data && data.page_bundle && targetPage === state.currentPage) {
     await applyPageBundleDirectly(targetPage, data.page_bundle);
   } else {
@@ -912,6 +1297,9 @@ async function applyMutationResponse(data, targetPage = state.currentPage) {
 
 async function loadPage(pageNumber, _opts = {}) {
   if (!state.docId) return;
+  if (typeof clearMultiSelection === "function") {
+    clearMultiSelection();
+  }
 
   const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
   const isCached = state.pageBundleCache && state.pageBundleCache.has(cacheKey);
@@ -1104,6 +1492,11 @@ function renderBlockHighlights() {
 
     div.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (e.shiftKey) {
+        toggleElementMultiSelect({ type: "text", block, element: div });
+        return;
+      }
+      clearMultiSelection();
       selectBlockForEdit(block, div);
     });
 
@@ -1125,42 +1518,43 @@ function renderBlockHighlights() {
       const newPtY1 = Math.round(newPtY0 + origH);
       const newBbox = [newPtX0, newPtY0, newPtX1, newPtY1];
 
-      setLoading(true, "Moving text block on PDF...");
-      try {
-        const res = await fetch(`/api/document/${state.docId}/edit-text`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            edits: [{
-              page: state.currentPage,
-              bbox: block.bbox,
-              lines: block.lines,
-              new_bbox: newBbox,
-              new_text: block.text,
-              font_size: block.avg_font_size || block.font_size || 11,
-              font_name: block.font_name || "helv",
-              text_color: block.color || [0, 0, 0],
-              bg_color: null
-            }]
-          })
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || "Failed to move text block");
+      queueOptimisticMutation(
+        async () => {
+          const res = await fetch(`/api/document/${state.docId}/edit-text`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              edits: [{
+                page: state.currentPage,
+                bbox: block.bbox,
+                lines: block.lines,
+                new_bbox: newBbox,
+                new_text: block.text,
+                font_size: block.avg_font_size || block.font_size || 11,
+                font_name: block.font_name || "helv",
+                text_color: block.color || [0, 0, 0],
+                bg_color: null
+              }]
+            })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.detail || "Failed to move text block");
+          }
+          const data = await res.json();
+          showToast(`Text block moved to (${newPtX0}, ${newPtY0})`, "success");
+          return data;
+        },
+        () => {
+          if (blockMask) {
+            blockMask.remove();
+            blockMask = null;
+          }
+          div.classList.remove("is-dragging");
+          div.style.left = `${left}px`;
+          div.style.top = `${top}px`;
         }
-        const data = await res.json();
-        showToast(`Text block moved to (${newPtX0}, ${newPtY0})`, "success");
-        await applyMutationResponse(data, state.currentPage);
-      } catch (err) {
-        if (blockMask) {
-          blockMask.remove();
-          blockMask = null;
-        }
-        div.classList.remove("is-dragging");
-        showToast(err.message, "error");
-      } finally {
-        setLoading(false);
-      }
+      );
     }, null, (startX, startY, startW, startH) => {
       if (!blockMask) {
         blockMask = document.createElement("div");
@@ -1249,12 +1643,23 @@ function renderAnnotationOverlays(pageNumber) {
       wrapper.addEventListener("click", (e) => {
         if (state.activeTab === "tab-annotate" || state.activeTab === "tab-redact") return;
         e.stopPropagation();
+        if (e.shiftKey) {
+          toggleElementMultiSelect({ type: "annot", annot, element: wrapper });
+          return;
+        }
+        clearMultiSelection();
         if (typeof selectShapeForEdit === "function") {
           selectShapeForEdit(annot, wrapper);
         }
       });
     } else {
       wrapper.style.cursor = "grab";
+      wrapper.addEventListener("click", (e) => {
+        if (e.shiftKey) {
+          e.stopPropagation();
+          toggleElementMultiSelect({ type: "annot", annot, element: wrapper });
+        }
+      });
       wrapper.addEventListener("mousedown", () => wrapper.style.cursor = "grabbing");
       wrapper.addEventListener("mouseup", () => wrapper.style.cursor = "grab");
     }
@@ -1754,6 +2159,24 @@ function setupViewerControls() {
     btnDownload.addEventListener("click", () => {
       if (!state.docId) return;
       window.location.href = `/api/document/${state.docId}/download`;
+    });
+  }
+
+  if (btnHistoryTimeline) {
+    btnHistoryTimeline.addEventListener("click", () => {
+      toggleHistoryDrawer();
+    });
+  }
+
+  if (btnCloseHistoryDrawer) {
+    btnCloseHistoryDrawer.addEventListener("click", () => {
+      toggleHistoryDrawer(false);
+    });
+  }
+
+  if (btnRevertToOriginal) {
+    btnRevertToOriginal.addEventListener("click", () => {
+      if (btnReset) btnReset.click();
     });
   }
 }
@@ -2851,6 +3274,9 @@ function setupCanvasDrawing() {
   let isDragging = false;
   let startX = 0, startY = 0;
   let activeBox = null;
+  let isMarqueeDragging = false;
+  let marqueeStartX = 0, marqueeStartY = 0;
+  let marqueeBox = null;
 
   // Global click outside to deselect form field and active live transform box
   document.addEventListener("pointerdown", (e) => {
@@ -2959,7 +3385,28 @@ function setupCanvasDrawing() {
     }
 
     const validTabs = ["tab-shapes", "tab-redact", "tab-forms", "tab-image", "tab-organize"];
-    if (!validTabs.includes(state.activeTab)) return;
+    if (!validTabs.includes(state.activeTab)) {
+      if (!e.shiftKey) {
+        clearMultiSelection();
+      }
+      isMarqueeDragging = true;
+      const rect = interactiveOverlay.getBoundingClientRect();
+      marqueeStartX = e.clientX - rect.left;
+      marqueeStartY = e.clientY - rect.top;
+
+      if (marqueeBox) {
+        marqueeBox.remove();
+        marqueeBox = null;
+      }
+      marqueeBox = document.createElement("div");
+      marqueeBox.className = "canvas-marquee-selection";
+      marqueeBox.style.left = `${marqueeStartX}px`;
+      marqueeBox.style.top = `${marqueeStartY}px`;
+      marqueeBox.style.width = "0px";
+      marqueeBox.style.height = "0px";
+      interactiveOverlay.appendChild(marqueeBox);
+      return;
+    }
 
     isDragging = true;
     const rect = interactiveOverlay.getBoundingClientRect();
@@ -2980,6 +3427,23 @@ function setupCanvasDrawing() {
   });
 
   interactiveOverlay.addEventListener("mousemove", (e) => {
+    if (isMarqueeDragging && marqueeBox) {
+      const rect = interactiveOverlay.getBoundingClientRect();
+      const curX = e.clientX - rect.left;
+      const curY = e.clientY - rect.top;
+
+      const left = Math.min(marqueeStartX, curX);
+      const top = Math.min(marqueeStartY, curY);
+      const width = Math.abs(curX - marqueeStartX);
+      const height = Math.abs(curY - marqueeStartY);
+
+      marqueeBox.style.left = `${left}px`;
+      marqueeBox.style.top = `${top}px`;
+      marqueeBox.style.width = `${width}px`;
+      marqueeBox.style.height = `${height}px`;
+      return;
+    }
+
     if (!isDragging || !activeBox) return;
     const rect = interactiveOverlay.getBoundingClientRect();
     const currentX = (e.clientX - rect.left);
@@ -3002,6 +3466,60 @@ function setupCanvasDrawing() {
   });
 
   interactiveOverlay.addEventListener("mouseup", (e) => {
+    if (isMarqueeDragging) {
+      isMarqueeDragging = false;
+      if (marqueeBox) {
+        const mLeft = parseFloat(marqueeBox.style.left) || 0;
+        const mTop = parseFloat(marqueeBox.style.top) || 0;
+        const mWidth = parseFloat(marqueeBox.style.width) || 0;
+        const mHeight = parseFloat(marqueeBox.style.height) || 0;
+        const mRight = mLeft + mWidth;
+        const mBottom = mTop + mHeight;
+
+        marqueeBox.remove();
+        marqueeBox = null;
+
+        if (mWidth > 8 && mHeight > 8) {
+          const textEls = interactiveOverlay.querySelectorAll(".text-block-highlight");
+          textEls.forEach(el => {
+            const eLeft = parseFloat(el.style.left) || 0;
+            const eTop = parseFloat(el.style.top) || 0;
+            const eWidth = parseFloat(el.style.width) || 0;
+            const eHeight = parseFloat(el.style.height) || 0;
+            const eRight = eLeft + eWidth;
+            const eBottom = eTop + eHeight;
+
+            const intersects = !(mRight < eLeft || mLeft > eRight || mBottom < eTop || mTop > eBottom);
+            if (intersects) {
+              const blk = state.textBlocks.find(b => b.id === el.dataset.blockId);
+              if (blk) {
+                toggleElementMultiSelect({ type: "text", block: blk, element: el });
+              }
+            }
+          });
+
+          const shapeEls = interactiveOverlay.querySelectorAll(".shape-annotation-wrapper");
+          shapeEls.forEach(el => {
+            const eLeft = parseFloat(el.style.left) || 0;
+            const eTop = parseFloat(el.style.top) || 0;
+            const eWidth = parseFloat(el.style.width) || 0;
+            const eHeight = parseFloat(el.style.height) || 0;
+            const eRight = eLeft + eWidth;
+            const eBottom = eTop + eHeight;
+
+            const intersects = !(mRight < eLeft || mLeft > eRight || mBottom < eTop || mTop > eBottom);
+            if (intersects) {
+              const annot = state.annotations.find(a => String(a.index) === el.dataset.annotIndex);
+              if (annot) {
+                toggleElementMultiSelect({ type: "annot", annot: annot, element: el });
+              }
+            }
+          });
+        }
+      }
+      return;
+    }
+
     if (!isDragging) return;
     isDragging = false;
 

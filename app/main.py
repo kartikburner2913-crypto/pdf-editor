@@ -172,18 +172,63 @@ def save_and_bundle(
     zoom: float = 1.5,
     message: str = "Success",
     extra: Optional[Dict[str, Any]] = None,
-    include_info: bool = True
+    include_info: bool = True,
+    action_type: Optional[str] = None
 ) -> Dict[str, Any]:
     next_v = save_new_version(doc_id, new_pdf)
     doc_entry = DOC_STORE.get(doc_id)
     can_undo = (doc_entry["current_version"] > 0) if doc_entry else True
     can_redo = (doc_entry["current_version"] < doc_entry["max_version"]) if doc_entry else False
+
+    # Infer action_type if not explicitly provided
+    if not action_type:
+        msg_l = (message or "").lower()
+        if "text" in msg_l:
+            action_type = "text"
+        elif "shape" in msg_l or "draw" in msg_l or "line" in msg_l or "rect" in msg_l:
+            action_type = "shape"
+        elif "image" in msg_l:
+            action_type = "image"
+        elif "rotat" in msg_l:
+            action_type = "rotate"
+        elif "delet" in msg_l or "remov" in msg_l:
+            action_type = "delete"
+        elif "form" in msg_l:
+            action_type = "form"
+        elif "stamp" in msg_l:
+            action_type = "stamp"
+        elif "watermark" in msg_l:
+            action_type = "watermark"
+        elif "crop" in msg_l:
+            action_type = "crop"
+        else:
+            action_type = "edit"
+
+    if doc_entry:
+        hist = doc_entry.setdefault("history", [{
+            "version": 0,
+            "action_title": "Original Document Uploaded",
+            "action_type": "upload",
+            "page": 1,
+            "timestamp": doc_entry.get("updated_at", time.time())
+        }])
+        # Truncate any branching redo history
+        doc_entry["history"] = [h for h in hist if h.get("version", 0) < next_v]
+        doc_entry["history"].append({
+            "version": next_v,
+            "action_title": message or "Document Modified",
+            "action_type": action_type,
+            "page": page_num if page_num and page_num > 0 else 1,
+            "timestamp": time.time()
+        })
+
     res: Dict[str, Any] = {
         "status": "success",
         "message": message,
         "version": next_v,
         "can_undo": can_undo,
-        "can_redo": can_redo
+        "can_redo": can_redo,
+        "history": doc_entry.get("history", []) if doc_entry else []
     }
     if include_info:
         try:
@@ -549,6 +594,12 @@ class DeleteAnnotationRequest(BaseModel):
     index: int
 
 
+class BatchDeleteRequest(BaseModel):
+    page: int = 1
+    text_edits: Optional[List[Dict[str, Any]]] = None
+    annot_indices: Optional[List[int]] = None
+
+
 class UpdateAnnotationRequest(BaseModel):
     page: int = 1
     index: int
@@ -632,7 +683,14 @@ async def upload_pdf(file: UploadFile = File(...), password: Optional[str] = For
         "filename": sanitize_filename(file.filename),
         "current_version": 0,
         "max_version": 0,
-        "updated_at": time.time()
+        "updated_at": time.time(),
+        "history": [{
+            "version": 0,
+            "action_title": "Original Document Uploaded",
+            "action_type": "upload",
+            "page": 1,
+            "timestamp": time.time()
+        }]
     }
 
     return {
@@ -640,7 +698,8 @@ async def upload_pdf(file: UploadFile = File(...), password: Optional[str] = For
         "filename": sanitize_filename(file.filename),
         "is_encrypted": is_enc,
         "requires_password": requires_pw,
-        "info": info
+        "info": info,
+        "history": DOC_STORE[doc_id]["history"]
     }
 
 
@@ -1247,7 +1306,8 @@ async def undo_last_change(doc_id: str, page: Optional[int] = Query(1), zoom: fl
             "info": info,
             "version": doc["current_version"],
             "can_undo": doc["current_version"] > 0,
-            "can_redo": doc["current_version"] < doc.get("max_version", 0)
+            "can_redo": doc["current_version"] < doc.get("max_version", 0),
+            "history": doc.get("history", [])
         }
         if page and page > 0:
             try:
@@ -1277,7 +1337,8 @@ async def redo_change(doc_id: str, page: Optional[int] = Query(1), zoom: float =
             "info": info,
             "version": doc["current_version"],
             "can_undo": doc["current_version"] > 0,
-            "can_redo": doc["current_version"] < max_v
+            "can_redo": doc["current_version"] < max_v,
+            "history": doc.get("history", [])
         }
         if page and page > 0:
             try:
@@ -1291,8 +1352,77 @@ async def redo_change(doc_id: str, page: Optional[int] = Query(1), zoom: float =
         raise HTTPException(status_code=400, detail="Nothing to redo.")
 
 
+@app.get("/api/document/{doc_id}/history")
+async def get_document_history(doc_id: str):
+    """Retrieve full chronological mutation timeline for the document session."""
+    doc = get_doc(doc_id)
+    return {
+        "status": "success",
+        "current_version": doc["current_version"],
+        "max_version": doc.get("max_version", doc["current_version"]),
+        "history": doc.get("history", [{
+            "version": 0,
+            "action_title": "Original Document Uploaded",
+            "action_type": "upload",
+            "page": 1,
+            "timestamp": doc.get("updated_at", time.time())
+        }])
+    }
+
+
+@app.post("/api/document/{doc_id}/jump-to-version/{target_version}")
+async def jump_to_version(doc_id: str, target_version: int, page: Optional[int] = Query(1), zoom: float = Query(1.5)):
+    """Jump directly to any past or future revision in the document timeline."""
+    doc = get_doc(doc_id)
+    max_v = doc.get("max_version", doc["current_version"])
+    if not (0 <= target_version <= max_v):
+        raise HTTPException(status_code=400, detail=f"Target version {target_version} out of bounds (0..{max_v}).")
+    doc["current_version"] = target_version
+    current_bytes = get_doc_bytes(doc_id, target_version)
+    doc["current_bytes"] = current_bytes
+    info = PDFEngine.get_document_info(current_bytes)
+    res = {
+        "status": "success",
+        "message": f"Jumped to revision v{target_version}.",
+        "info": info,
+        "version": target_version,
+        "can_undo": target_version > 0,
+        "can_redo": target_version < max_v,
+        "history": doc.get("history", [])
+    }
+    if page and page > 0:
+        try:
+            bundle = PDFEngine.get_page_bundle(current_bytes, page, zoom=zoom)
+            bundle["version"] = target_version
+            res["page_bundle"] = bundle
+        except Exception:
+            pass
+    return res
+
+
+@app.post("/api/document/{doc_id}/batch-delete")
+async def batch_delete_elements(doc_id: str, req: BatchDeleteRequest):
+    """Atomically delete multiple selected text blocks and annotations in a single transaction."""
+    doc = get_doc(doc_id)
+    try:
+        new_pdf = PDFEngine.batch_delete_elements(
+            doc["current_bytes"],
+            page_num=req.page,
+            text_edits=req.text_edits,
+            annot_indices=req.annot_indices
+        )
+        count = len(req.text_edits or []) + len(req.annot_indices or [])
+        return save_and_bundle(
+            doc_id, new_pdf, page_num=req.page,
+            message=f"Deleted {count} item{'s' if count != 1 else ''} in batch.",
+            action_type="delete"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error performing batch delete: {str(e)}")
+
+
 @app.post("/api/document/{doc_id}/revert")
-async def revert_to_original(doc_id: str):
+async def revert_to_original(doc_id: str, page: Optional[int] = Query(1), zoom: float = Query(1.5)):
     """Revert to the original uploaded document."""
     doc = get_doc(doc_id)
     if doc["current_version"] == 0:
@@ -1301,7 +1431,23 @@ async def revert_to_original(doc_id: str):
     current_bytes = get_doc_bytes(doc_id, 0)
     doc["current_bytes"] = current_bytes
     info = PDFEngine.get_document_info(current_bytes)
-    return {"status": "success", "message": "Reverted to original document.", "info": info}
+    res = {
+        "status": "success",
+        "message": "Reverted to original document.",
+        "info": info,
+        "version": 0,
+        "can_undo": False,
+        "can_redo": doc.get("max_version", 0) > 0,
+        "history": doc.get("history", [])
+    }
+    if page and page > 0:
+        try:
+            bundle = PDFEngine.get_page_bundle(current_bytes, page, zoom=zoom)
+            bundle["version"] = 0
+            res["page_bundle"] = bundle
+        except Exception:
+            pass
+    return res
 
 
 @app.get("/api/document/{doc_id}/search")

@@ -1202,6 +1202,46 @@ class PDFEngine:
             doc.close()
 
     @staticmethod
+    def batch_delete_elements(
+        pdf_bytes: bytes,
+        page_num: int,
+        text_edits: Optional[List[Dict[str, Any]]] = None,
+        annot_indices: Optional[List[int]] = None
+    ) -> bytes:
+        """Atomically delete multiple text blocks and annotations in a single pass."""
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            if not (1 <= page_num <= len(doc)):
+                raise ValueError("Invalid page number")
+            page = doc[page_num - 1]
+
+            # 1. Redact text blocks
+            if text_edits:
+                for te in text_edits:
+                    bbox = te.get("bbox")
+                    lines = te.get("lines")
+                    if lines and isinstance(lines, list):
+                        for l in lines:
+                            if "bbox" in l:
+                                page.add_redact_annot(fitz.Rect(l["bbox"]))
+                    elif bbox:
+                        page.add_redact_annot(fitz.Rect(bbox))
+                page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+
+            # 2. Delete annotations in descending order of index so index shifts don't affect previous elements
+            if annot_indices:
+                annots = list(page.annots())
+                for idx in sorted(set(annot_indices), reverse=True):
+                    if 0 <= idx < len(annots):
+                        page.delete_annot(annots[idx])
+
+            output = io.BytesIO()
+            doc.save(output, garbage=3, deflate=True)
+            return output.getvalue()
+        finally:
+            doc.close()
+
+    @staticmethod
     def update_annotation(
         pdf_bytes: bytes,
         page_num: int,

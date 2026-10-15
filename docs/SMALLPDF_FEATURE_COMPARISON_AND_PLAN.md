@@ -636,25 +636,30 @@ Power users and professionals find purely mouse-driven document manipulation slo
 
 ### Plan Q5: Zero-Latency Optimistic UI & Visual Undo/Redo Timeline
 
+**Status:** Implemented (PASS)  
 **Difficulty:** Medium  
-**Estimated Effort:** 2-3 days  
-**Target Areas:** `static/js/app.js`, `static/css/style.css`
+**Target Areas:** `app/main.py`, `app/pdf_engine.py`, `static/js/app.js`, `templates/index.html`, `static/css/style.css`, `tests/test_optimistic_history_timeline.py`
 
-#### Problem Analysis
-Smallpdf forces modal loading spinners for trivial changes, breaking editing momentum. Furthermore, standard blind `Ctrl + Z` undo leaves users guessing what was reverted.
-
-#### Architectural Specification
-1. **Optimistic Mutation Pipeline:**
-   - Apply DOM updates immediately upon user action (0ms perceived latency).
-   - Dispatch background mutation request to the FastAPI backend.
-   - If the request succeeds, silently update document versioning and state.
-   - If the request fails, show a non-intrusive toast alert and automatically rollback the DOM state.
-2. **Visual Undo History Drawer:**
-   - A dedicated slide-out drawer accessible from the top toolbar showing an interactive timeline of all mutations in the current session (e.g., *"Edited Heading text"*, *"Moved Rectangle shape"*, *"Rotated Page 2 (90 deg CW)"*, *"Watermark Applied"*).
-   - Each timeline entry displays a timestamp, action icon, and target page.
-   - Users can click any past state to instantaneously time-travel / rollback to that specific revision.
-3. **Multi-Selection & Batch Transform:**
-   - Support `Shift + Click` or rubber-band canvas marquee selection to select multiple annotations/shapes simultaneously, enabling grouped moves, mass alignment, or bulk deletion.
+#### Implementation Summary
+1. **Zero-Latency Non-Blocking Optimistic Pipeline (`static/js/app.js`, `templates/index.html`, `static/css/style.css`):**
+   - Replaced screen-blocking modal spinners on text moves, transform box commits, shape edits, and deletions with immediate 0ms DOM updates.
+   - Sequential background mutation queue (`mutationQueue` + `queueOptimisticMutation()`) executes server requests sequentially, preventing out-of-order race conditions.
+   - Non-blocking top navbar status badge (`#optimisticSaveBadge`) displays sleek spinner when saving and green checkmark when saved with automatic fade-out.
+   - Automatic snapshot rollback: if any server request fails, the DOM reverts immediately and a toast notification informs the user.
+2. **Visual Undo/Redo Revision History Drawer (`templates/index.html`, `static/css/style.css`, `static/js/app.js`):**
+   - Dedicated slide-out drawer (`#historyTimelineDrawer`) toggleable from the top toolbar (`#btnHistoryTimeline`) or drawer close button.
+   - Chronological revision cards displaying revision number (`v0`, `v1`, etc.), descriptive action title, action-type vector icon badges (text, shape, image, rotate, delete, upload), target page number, and formatted timestamp.
+   - Direct 1-click revision time-travel via `POST /api/document/{doc_id}/jump-to-version/{target_version}` allows users to jump instantly to any past or future revision without step-by-step clicking.
+   - Full branch truncation handling: performing a new edit after jumping to a past revision cleanly forks history and updates `can_undo`/`can_redo` states.
+3. **Multi-Selection & Canvas Marquee Selection (`static/js/app.js`, `static/css/style.css`):**
+   - `Shift + Click` toggles multi-selection across text blocks and shape annotations with high-contrast outlines and blue glow.
+   - Rubber-band marquee selection (`.canvas-marquee-selection`): dragging on empty canvas draws a dashed bounding box that auto-selects all enclosed or intersecting elements on mouse release.
+   - Floating contextual action toolbar (`#multiSelectToolbar`) shows selected element count, "Delete Selected" button, and "Clear" button.
+4. **Atomic Batch Deletion (`app/pdf_engine.py`, `app/main.py`):**
+   - Implemented `PDFEngine.batch_delete_elements()` executing atomic text redactions and reverse-order annotation removals in a single write pass.
+   - Exposed `POST /api/document/{doc_id}/batch-delete` returning unified page bundle and recording a `delete` history event.
+5. **Automated Verification:**
+   - 6 new automated tests in `tests/test_optimistic_history_timeline.py` validating upload history initialization, multi-mutation logging, jump-to-version bounds & navigation, atomic batch delete, and divergent branch truncation. 100% project pass rate (123/123 tests passing).
 
 ---
 
