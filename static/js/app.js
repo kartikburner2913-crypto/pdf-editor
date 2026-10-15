@@ -767,23 +767,48 @@ function setOptimisticStatus(status, text) {
   }
   badge.style.display = "inline-flex";
   badge.style.opacity = "1";
+
+  let displayText = text;
+  let fullTitle = text;
+
   if (status === "saving") {
+    if (!displayText || displayText === "Saving changes..." || displayText === "Saving...") {
+      displayText = "Saving...";
+      fullTitle = "Saving changes...";
+    } else if (displayText.includes("Time traveling") || displayText.includes("Restor") || displayText.includes("revision")) {
+      displayText = "Restoring...";
+      fullTitle = text || "Restoring document revision...";
+    }
     badge.className = "optimistic-save-badge saving";
+    badge.title = fullTitle;
     badge.innerHTML = `
       <div class="optimistic-spinner"></div>
-      <span class="optimistic-status-text">${escapeHtml(text || "Saving changes...")}</span>
+      <span class="optimistic-status-text">${escapeHtml(displayText)}</span>
     `;
   } else if (status === "saved") {
+    if (!displayText || displayText === "All changes saved" || displayText === "Saved") {
+      displayText = "Saved";
+      fullTitle = "All changes saved";
+    } else if (displayText === "Error") {
+      displayText = "Failed";
+      fullTitle = "Failed to complete change";
+    }
     badge.className = "optimistic-save-badge saved";
+    badge.title = fullTitle;
     badge.innerHTML = `
-      <svg class="optimistic-check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-      <span class="optimistic-status-text">${escapeHtml(text || "All changes saved")}</span>
+      <svg class="optimistic-check-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      <span class="optimistic-status-text">${escapeHtml(displayText)}</span>
     `;
     optimisticStatusTimer = setTimeout(() => {
       if (badge && badge.classList.contains("saved")) {
-        badge.style.opacity = "0.6";
+        badge.style.opacity = "0";
+        setTimeout(() => {
+          if (badge && badge.style.opacity === "0") {
+            badge.style.display = "none";
+          }
+        }, 250);
       }
-    }, 3200);
+    }, 2500);
   }
 }
 
@@ -798,7 +823,7 @@ async function queueOptimisticMutation(taskFn, rollbackFn = null, options = {}) 
 async function processMutationQueue() {
   if (isProcessingMutationQueue || mutationQueue.length === 0) return;
   isProcessingMutationQueue = true;
-  setOptimisticStatus("saving", "Saving changes...");
+  setOptimisticStatus("saving", "Saving...");
 
   while (mutationQueue.length > 0) {
     const item = mutationQueue.shift();
@@ -818,7 +843,7 @@ async function processMutationQueue() {
   }
 
   isProcessingMutationQueue = false;
-  setOptimisticStatus("saved", "All changes saved");
+  setOptimisticStatus("saved", "Saved");
 }
 
 function getActionTypeSvgIcon(actionType) {
@@ -950,7 +975,7 @@ async function jumpToRevision(targetVersion) {
   if (!state.docId) return;
   if (targetVersion === state.docVersion) return;
 
-  setOptimisticStatus("saving", "Time traveling to revision...");
+  setOptimisticStatus("saving", "Restoring...");
   try {
     const res = await fetch(`/api/document/${state.docId}/jump-to-version/${targetVersion}?page=${state.currentPage}&zoom=${state.zoom}`, {
       method: "POST"
@@ -963,7 +988,7 @@ async function jumpToRevision(targetVersion) {
     showToast(`Jumped to revision v${targetVersion}`, "info");
     await applyMutationResponse(data, state.currentPage);
     await loadFormFields();
-    setOptimisticStatus("saved", "All changes saved");
+    setOptimisticStatus("saved", "Restored");
   } catch (err) {
     showToast(err.message, "error");
     setOptimisticStatus("saved", "Error");
