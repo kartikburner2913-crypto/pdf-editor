@@ -528,12 +528,12 @@ function updateUndoRedoButtons(canUndo, canRedo) {
 const MAX_BUNDLE_CACHE_SIZE = 25;
 
 async function fetchPageBundle(pageNumber) {
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const cacheKey = `${state.docId}_v${state.docVersion || 0}_p${pageNumber}_z${state.zoom}`;
   if (state.pageBundleCache && state.pageBundleCache.has(cacheKey)) {
     return state.pageBundleCache.get(cacheKey);
   }
 
-  const res = await fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`);
+  const res = await fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 0}&t=${state.cacheBustTs || ''}`);
   if (!res.ok) throw new Error(`Failed to load page ${pageNumber} bundle`);
   const bundle = await res.json();
   if (state.pageBundleCache) {
@@ -548,10 +548,10 @@ async function fetchPageBundle(pageNumber) {
 
 function prefetchPageBundle(pageNumber) {
   if (!state.docId || pageNumber < 1 || pageNumber > state.totalPages) return;
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const cacheKey = `${state.docId}_v${state.docVersion || 0}_p${pageNumber}_z${state.zoom}`;
   if (state.pageBundleCache && state.pageBundleCache.has(cacheKey)) return;
 
-  fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 1}`)
+  fetch(`/api/document/${state.docId}/page/${pageNumber}/bundle?zoom=${state.zoom}&v=${state.docVersion || 0}&t=${state.cacheBustTs || ''}`)
     .then(res => res.ok ? res.json() : null)
     .then(async (bundle) => {
       if (bundle && state.pageBundleCache) {
@@ -656,6 +656,17 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
         }
         window.scrollTo(savedWinX, savedWinY);
       });
+    } else {
+      if (state.viewportLayout === "continuous") {
+        if (canvasWrapper) {
+          canvasWrapper.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      } else {
+        if (viewport) {
+          viewport.scrollTop = 0;
+          viewport.scrollLeft = 0;
+        }
+      }
     }
 
     if (state.activeTab === "tab-forms" || (state.formFields && state.formFields.length > 0)) {
@@ -693,6 +704,7 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
 }
 
 async function applyMutationResponse(data, targetPage = state.currentPage) {
+  state.cacheBustTs = Date.now();
   if (data && data.version !== undefined) {
     state.docVersion = data.version;
   } else {
@@ -708,19 +720,26 @@ async function applyMutationResponse(data, targetPage = state.currentPage) {
   if (data && data.info) {
     state.docInfo = data.info;
     state.totalPages = data.info.page_count || state.totalPages;
+    if (totalPagesSpan) totalPagesSpan.textContent = state.totalPages;
+    if (pageNumberInput) pageNumberInput.max = state.totalPages;
   }
 
-  if (data && data.page_bundle && targetPage === state.currentPage) {
-    await applyPageBundleDirectly(targetPage, data.page_bundle);
+  state.currentPage = Math.min(Math.max(1, targetPage || state.currentPage), state.totalPages || 1);
+  if (pageNumberInput) pageNumberInput.value = state.currentPage;
+
+  populateThumbnails();
+
+  if (data && data.page_bundle && state.currentPage === (data.page_bundle.page || targetPage)) {
+    await applyPageBundleDirectly(state.currentPage, data.page_bundle);
   } else {
-    await loadPage(targetPage || state.currentPage);
+    await loadPage(state.currentPage);
   }
 }
 
 async function loadPage(pageNumber, _opts = {}) {
   if (!state.docId) return;
 
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const cacheKey = `${state.docId}_v${state.docVersion || 0}_p${pageNumber}_z${state.zoom}`;
   const isCached = state.pageBundleCache && state.pageBundleCache.has(cacheKey);
   if (!isCached) {
     setLoading(true, `Loading Page ${pageNumber}...`);
@@ -1562,11 +1581,18 @@ function setupViewerControls() {
           const res = await fetch(`/api/document/${state.docId}/revert`, { method: "POST" });
           if (!res.ok) throw new Error("Revert failed");
           const data = await res.json();
+          state.cacheBustTs = Date.now();
+          state.docVersion = 0;
+          if (state.pageBundleCache) {
+            state.pageBundleCache.clear();
+          }
           state.docInfo = data.info;
           state.totalPages = data.info.page_count;
+          state.currentPage = 1;
           totalPagesSpan.textContent = state.totalPages;
+          pageNumberInput.value = 1;
           pageNumberInput.max = state.totalPages;
-          updateUndoRedoButtons(false, false);
+          updateUndoRedoButtons(false, data.can_redo !== undefined ? data.can_redo : true);
           updatePageOrderInput();
           populateThumbnails();
           deselectFormField();
@@ -2373,6 +2399,9 @@ function createPageSlotElement(pageNumber) {
   slot.dataset.page = pageNumber;
   slot.style.width = `${wPx}px`;
   slot.style.height = `${hPx}px`;
+  slot.style.minWidth = `${wPx}px`;
+  slot.style.minHeight = `${hPx}px`;
+  slot.style.flexShrink = "0";
 
   const badge = document.createElement("span");
   badge.className = "page-slot-badge";
@@ -2380,17 +2409,21 @@ function createPageSlotElement(pageNumber) {
 
   const content = document.createElement("div");
   content.className = "page-slot-content";
+  content.style.width = "100%";
+  content.style.height = "100%";
+  content.style.minHeight = `${hPx}px`;
 
   const img = document.createElement("img");
   img.className = "page-slot-image";
   img.alt = `Page ${pageNumber}`;
+  img.loading = "lazy";
 
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const cacheKey = `${state.docId}_v${state.docVersion || 0}_p${pageNumber}_z${state.zoom}`;
   const cachedBundle = state.pageBundleCache?.get(cacheKey);
   if (cachedBundle && cachedBundle.image_data_url) {
     img.src = cachedBundle.image_data_url;
   } else {
-    img.src = `/api/document/${state.docId}/page/${pageNumber}/image?zoom=${state.zoom}&v=${state.docVersion || 1}`;
+    img.src = `/api/document/${state.docId}/page/${pageNumber}/image?zoom=${state.zoom}&v=${state.docVersion || 0}&t=${state.cacheBustTs || ''}`;
   }
 
   content.appendChild(img);
@@ -2421,6 +2454,11 @@ function resizeContinuousPageSlots() {
     const hPx = Math.round(slotInfo.heightPt * state.zoom);
     slotInfo.element.style.width = `${wPx}px`;
     slotInfo.element.style.height = `${hPx}px`;
+    slotInfo.element.style.minWidth = `${wPx}px`;
+    slotInfo.element.style.minHeight = `${hPx}px`;
+    if (slotInfo.content) {
+      slotInfo.content.style.minHeight = `${hPx}px`;
+    }
   }
 }
 
@@ -6145,11 +6183,18 @@ function setupToolActions() {
       });
       if (!res.ok) throw new Error("Insert blank failed");
       const data = await res.json();
+      state.cacheBustTs = Date.now();
+      state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
+      if (state.pageBundleCache) {
+        state.pageBundleCache.clear();
+      }
       state.docInfo = data.info;
       state.totalPages = data.info.page_count;
+      state.currentPage = at;
       totalPagesSpan.textContent = state.totalPages;
+      pageNumberInput.value = at;
       pageNumberInput.max = state.totalPages;
-      updateUndoRedoButtons(true, false);
+      updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
       updatePageOrderInput();
       populateThumbnails();
       showToast("Blank page inserted!", "success");
@@ -8529,6 +8574,25 @@ async function loadMetadataAndAudit() {
 // Thumbnails, Drag & Drop, and Context Menu
 // ==========================================================================
 
+async function movePageRelative(pageNumber, delta) {
+  if (!state.docId) return;
+  const targetPos = pageNumber + delta;
+  if (targetPos < 1 || targetPos > state.totalPages) return;
+  const order = Array.from({ length: state.totalPages }, (_, idx) => idx + 1);
+  const itemToMove = order.splice(pageNumber - 1, 1)[0];
+  order.splice(targetPos - 1, 0, itemToMove);
+
+  if (state.currentPage === pageNumber) {
+    state.currentPage = targetPos;
+  } else if (state.currentPage === targetPos) {
+    state.currentPage = pageNumber;
+  }
+
+  showToast(`Moving Page ${pageNumber} to Page ${targetPos}...`, "info");
+  await applyPageOrder(order);
+}
+window.movePageRelative = movePageRelative;
+
 function populateThumbnails() {
   if (!previewList) return;
   previewList.innerHTML = "";
@@ -8556,7 +8620,7 @@ function populateThumbnails() {
     if (i === state.currentPage) wrapper.classList.add("active");
 
     wrapper.addEventListener("click", () => {
-      if (state.currentPage !== i) loadPage(i);
+      loadPage(i);
     });
 
     // Right-click context menu
@@ -8596,6 +8660,10 @@ function populateThumbnails() {
       const itemToMove = order.splice(fromPage - 1, 1)[0];
       order.splice(toPage - 1, 0, itemToMove);
 
+      if (state.currentPage === fromPage) {
+        state.currentPage = toPage;
+      }
+
       showToast(`Moving Page ${fromPage} to Page ${toPage}...`, "info");
       await applyPageOrder(order);
     });
@@ -8608,7 +8676,7 @@ function populateThumbnails() {
     const img = document.createElement("img");
     img.className = "thumbnail-image";
     img.loading = "lazy";
-    const thumbUrl = `/api/document/${state.docId}/page/${i}/image?zoom=0.18&format=jpeg&v=${state.docVersion || 1}`;
+    const thumbUrl = `/api/document/${state.docId}/page/${i}/image?zoom=0.18&format=jpeg&v=${state.docVersion || 0}&t=${state.cacheBustTs || ''}`;
 
     if (thumbnailObserver) {
       if (i <= 4) {
@@ -8621,10 +8689,41 @@ function populateThumbnails() {
       img.src = thumbUrl;
     }
 
+    // Quick move buttons on hover
+    const quickActions = document.createElement("div");
+    quickActions.className = "thumbnail-quick-actions";
+
+    if (i > 1) {
+      const btnUp = document.createElement("button");
+      btnUp.type = "button";
+      btnUp.className = "thumb-action-btn";
+      btnUp.title = "Move Page Up";
+      btnUp.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>';
+      btnUp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        movePageRelative(i, -1);
+      });
+      quickActions.appendChild(btnUp);
+    }
+
+    if (i < state.totalPages) {
+      const btnDown = document.createElement("button");
+      btnDown.type = "button";
+      btnDown.className = "thumb-action-btn";
+      btnDown.title = "Move Page Down";
+      btnDown.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+      btnDown.addEventListener("click", (e) => {
+        e.stopPropagation();
+        movePageRelative(i, 1);
+      });
+      quickActions.appendChild(btnDown);
+    }
+
     const num = document.createElement("div");
     num.className = "thumbnail-number";
     num.textContent = `Page ${i}`;
 
+    wrapper.appendChild(quickActions);
     wrapper.appendChild(img);
     wrapper.appendChild(num);
     previewList.appendChild(wrapper);
@@ -8657,8 +8756,13 @@ function syncActiveThumbnail(pageNumber) {
 
 function openThumbnailContextMenu(x, y, pageNumber) {
   state.contextMenuPage = pageNumber;
+  const ctxMoveUp = document.getElementById("ctxMovePageUp");
+  if (ctxMoveUp) ctxMoveUp.style.display = pageNumber > 1 ? "flex" : "none";
+  const ctxMoveDown = document.getElementById("ctxMovePageDown");
+  if (ctxMoveDown) ctxMoveDown.style.display = pageNumber < state.totalPages ? "flex" : "none";
+
   thumbnailContextMenu.style.left = `${Math.min(x, window.innerWidth - 200)}px`;
-  thumbnailContextMenu.style.top = `${Math.min(y, window.innerHeight - 250)}px`;
+  thumbnailContextMenu.style.top = `${Math.min(y, window.innerHeight - 280)}px`;
   thumbnailContextMenu.style.display = "block";
 }
 
@@ -8677,6 +8781,24 @@ function setupThumbnailsContextMenu() {
       await duplicateCurrentPage();
     }
   });
+
+  const ctxMoveUp = document.getElementById("ctxMovePageUp");
+  if (ctxMoveUp) {
+    ctxMoveUp.addEventListener("click", async () => {
+      if (state.contextMenuPage && state.contextMenuPage > 1) {
+        await movePageRelative(state.contextMenuPage, -1);
+      }
+    });
+  }
+
+  const ctxMoveDown = document.getElementById("ctxMovePageDown");
+  if (ctxMoveDown) {
+    ctxMoveDown.addEventListener("click", async () => {
+      if (state.contextMenuPage && state.contextMenuPage < state.totalPages) {
+        await movePageRelative(state.contextMenuPage, 1);
+      }
+    });
+  }
 
   document.getElementById("ctxRotateCW").addEventListener("click", async () => {
     if (state.contextMenuPage) {
@@ -9037,8 +9159,15 @@ async function rotateCurrentPage(angle) {
       body: JSON.stringify({ page_order: pageOrder, rotations: rotations })
     });
     if (!res.ok) throw new Error("Failed to rotate page");
+    const data = await res.json();
+    state.cacheBustTs = Date.now();
+    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
+    if (state.pageBundleCache) {
+      state.pageBundleCache.clear();
+    }
+    state.docInfo = data.info;
     showToast(`Page ${state.currentPage} rotated by ${angle}°`, "success");
-    updateUndoRedoButtons(true, false);
+    updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
     populateThumbnails();
     await loadPage(state.currentPage);
   } catch (err) {
@@ -9058,11 +9187,16 @@ async function duplicateCurrentPage() {
     });
     if (!res.ok) throw new Error("Duplicate failed");
     const data = await res.json();
+    state.cacheBustTs = Date.now();
+    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
+    if (state.pageBundleCache) {
+      state.pageBundleCache.clear();
+    }
     state.docInfo = data.info;
     state.totalPages = data.info.page_count;
     totalPagesSpan.textContent = state.totalPages;
     pageNumberInput.max = state.totalPages;
-    updateUndoRedoButtons(true, false);
+    updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
     updatePageOrderInput();
     populateThumbnails();
     showToast(`Page ${state.currentPage} duplicated!`, "success");
@@ -9085,12 +9219,18 @@ async function applyPageOrder(order) {
     });
     if (!res.ok) throw new Error("Failed to reorder pages");
     const data = await res.json();
+    state.cacheBustTs = Date.now();
+    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
+    if (state.pageBundleCache) {
+      state.pageBundleCache.clear();
+    }
     state.docInfo = data.info;
     state.totalPages = data.info.page_count;
-    state.currentPage = Math.min(state.currentPage, state.totalPages);
+    state.currentPage = Math.min(Math.max(1, state.currentPage), state.totalPages);
     totalPagesSpan.textContent = state.totalPages;
     pageNumberInput.max = state.totalPages;
-    updateUndoRedoButtons(true, false);
+    pageNumberInput.value = state.currentPage;
+    updateUndoRedoButtons(data.can_undo !== undefined ? data.can_undo : true, false);
     updatePageOrderInput();
     populateThumbnails();
     showToast("Page order applied!", "success");

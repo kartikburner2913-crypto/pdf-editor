@@ -603,8 +603,9 @@ The traditional editor rendered one page at a time with `< Prev` / `Next >` navi
    - Dedicated toolbar Hand Tool toggle (`#btnToggleHandTool`) and hotkey `H` switch cursor to `grab`/`grabbing`.
    - Holding <kbd>Spacebar</kbd> temporarily engages panning across any direction (horizontal and vertical) without altering tool state. Pressing `V` returns to Selection Tool.
 6. **Verification & Regression Testing:**
-   - Comprehensive automated test suite in `tests/test_continuous_viewport.py` covering HTML structure, CSS rules, emoji safety, permanent DOM mounting, single-view default, hand tool, and cursor-anchored zoom arithmetic.
-   - Verified that all 114 test suite items pass without regressions across text editing, AcroForms, shapes, split/merge, crop, and compression.
+   - Comprehensive automated test suites in `tests/test_continuous_viewport.py` and `tests/test_page_reorder_undo_revert.py` covering HTML structure, CSS rules, emoji safety, permanent DOM mounting, single-view default, hand tool, cursor-anchored zoom arithmetic, and full roundtrip reordering with undo, redo, and revert.
+   - Non-collapsing flex-shrink safety (`flex-shrink: 0; min-height`) prevents page slots from vanishing or badges from stacking.
+   - Verified that all 116 test suite items pass without regressions across text editing, AcroForms, shapes, split/merge, crop, compression, and page reordering.
 
 ---
 

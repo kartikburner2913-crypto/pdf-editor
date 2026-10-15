@@ -866,9 +866,16 @@ async def add_watermark(doc_id: str, req: WatermarkRequest):
             rotation_angle=req.rotation_angle,
             page_numbers=req.page_numbers
         )
-        save_new_version(doc_id, new_pdf)
+        next_v = save_new_version(doc_id, new_pdf)
         info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Watermark applied successfully.", "info": info}
+        return {
+            "status": "success",
+            "message": "Watermark applied successfully.",
+            "info": info,
+            "version": next_v,
+            "can_undo": next_v > 0,
+            "can_redo": False
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error applying watermark: {str(e)}")
 
@@ -886,9 +893,16 @@ async def organize_pages(doc_id: str, req: OrganizeRequest):
             page_order=req.page_order,
             rotations=rotations_int
         )
-        save_new_version(doc_id, new_pdf)
+        next_v = save_new_version(doc_id, new_pdf)
         info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": "Pages organized successfully.", "info": info}
+        return {
+            "status": "success",
+            "message": "Pages organized successfully.",
+            "info": info,
+            "version": next_v,
+            "can_undo": next_v > 0,
+            "can_redo": False
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1301,7 +1315,14 @@ async def revert_to_original(doc_id: str):
     current_bytes = get_doc_bytes(doc_id, 0)
     doc["current_bytes"] = current_bytes
     info = PDFEngine.get_document_info(current_bytes)
-    return {"status": "success", "message": "Reverted to original document.", "info": info}
+    return {
+        "status": "success",
+        "message": "Reverted to original document.",
+        "info": info,
+        "version": 0,
+        "can_undo": False,
+        "can_redo": doc.get("max_version", 0) > 0
+    }
 
 
 @app.get("/api/document/{doc_id}/search")
@@ -1790,9 +1811,16 @@ async def insert_blank_page(doc_id: str, req: InsertBlankPageRequest):
             width=req.width,
             height=req.height
         )
-        save_new_version(doc_id, new_pdf)
+        next_v = save_new_version(doc_id, new_pdf)
         info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"Blank page inserted at page {req.at_page}.", "info": info}
+        return {
+            "status": "success",
+            "message": f"Blank page inserted at page {req.at_page}.",
+            "info": info,
+            "version": next_v,
+            "can_undo": next_v > 0,
+            "can_redo": False
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error inserting page: {str(e)}")
 
@@ -1803,9 +1831,16 @@ async def duplicate_page(doc_id: str, req: DuplicatePageRequest):
     doc = get_doc(doc_id)
     try:
         new_pdf = PDFEngine.duplicate_page(doc["current_bytes"], page_num=req.page)
-        save_new_version(doc_id, new_pdf)
+        next_v = save_new_version(doc_id, new_pdf)
         info = PDFEngine.get_document_info(new_pdf)
-        return {"status": "success", "message": f"Page {req.page} duplicated.", "info": info}
+        return {
+            "status": "success",
+            "message": f"Page {req.page} duplicated.",
+            "info": info,
+            "version": next_v,
+            "can_undo": next_v > 0,
+            "can_redo": False
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error duplicating page: {str(e)}")
 
@@ -1821,10 +1856,17 @@ async def crop_page(doc_id: str, req: CropPageRequest):
             crop_box=req.crop_box,
             apply_all_pages=req.apply_all_pages
         )
-        save_new_version(doc_id, new_pdf)
+        next_v = save_new_version(doc_id, new_pdf)
         info = PDFEngine.get_document_info(new_pdf)
         target_str = "all pages" if req.apply_all_pages else f"page {req.page}"
-        return {"status": "success", "message": f"Cropped {target_str}.", "info": info}
+        return {
+            "status": "success",
+            "message": f"Cropped {target_str}.",
+            "info": info,
+            "version": next_v,
+            "can_undo": next_v > 0,
+            "can_redo": False
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cropping page: {str(e)}")
 
