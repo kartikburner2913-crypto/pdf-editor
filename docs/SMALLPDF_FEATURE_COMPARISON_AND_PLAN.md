@@ -543,7 +543,7 @@ Page thumbnail grid with checkboxes, select-all, range inputs, and burst-to-ZIP 
 
 ## Category Q — Architectural & UX Quality Beyond Smallpdf
 
-> **Strategic Objective:** Achieving functional parity with Smallpdf closes the utility gap, but utility alone does not create a delightful, sticky product. Smallpdf suffers from noticeable round-trip latency, rigid single-page slide-deck navigation, absence of alignment guides, mouse-only ergonomics, and typography mismatch during text editing. By implementing spatial precision, continuous document flow, typography harmonization, and tactile power-user shortcuts inspired by Figma and Canva, PDF Studio transcends traditional online utilities to become an enterprise-grade document creation studio.
+> **Strategic Objective:** Achieving functional parity with Smallpdf closes the utility gap, but utility alone does not create a delightful, sticky product. Smallpdf suffers from noticeable round-trip latency, absence of alignment guides, mouse-only ergonomics, and typography mismatch during text editing. By implementing spatial precision, typography harmonization, power-user hotkeys, and intelligent pre-flight exports inspired by Figma and Canva, PDF Studio transcends traditional online utilities to become an enterprise-grade document creation studio.
 
 ---
 
@@ -574,30 +574,6 @@ Smallpdf requires users to position text, images, and shapes completely by eye. 
    - **Toolbar Toggle Button (`#btnToggleSnapping`)**: Added to the viewer controls with a magnet SVG icon (active by default). Clicking toggles `state.smartSnappingEnabled`.
 4. **Verification:**
    - Automated test suite in `tests/test_smart_guides_snapping.py` covering HTML structure, CSS rules, emoji safety, and Node-based mathematical assertions for center snap, margin snap, object snap, resize snap, and `Alt` bypass (109 / 109 tests passing).
-
----
-
-### Plan Q2: Continuous Multi-Page Virtualized Canvas Viewport
-
-**Difficulty:** High  
-**Estimated Effort:** 5-7 days  
-**Target Areas:** `static/js/app.js`, `static/css/style.css`, `templates/index.html`
-
-#### Problem Analysis
-The current editor renders one page at a time with `< Prev` / `Next >` navigation buttons. This creates a disjointed "slideshow" feel rather than a continuous reading and editing experience matching Adobe Acrobat Web or Google Docs.
-
-#### Architectural Specification
-1. **Vertical Document Flow:**
-   - Render pages sequentially in a continuous vertical stack separated by configurable gap (`18px`) and subtle elevation dropshadows.
-2. **DOM Virtualization Engine:**
-   - To prevent memory bloat on 100+ page PDFs, virtualize the canvas stack: only keep visible pages plus a 1-page prefetch buffer above and below mounted in the DOM. Unmounted pages are represented by lightweight placeholder bounding boxes matching their native aspect ratios.
-3. **Cursor-Anchored Zoom & Pan Hand Tool:**
-   - `Ctrl + Mouse Wheel` zooming centered on the mouse pointer coordinates rather than page origin.
-   - Hold `Spacebar` + drag (or activate `H` hand tool) to pan smoothly in any direction across the entire document layout.
-4. **Active Page Auto-Detection:**
-   - IntersectionObserver monitors viewport center to update the active page counter, thumbnail highlight, and status bar seamlessly without manual paging clicks.
-5. **Dynamic Retina / High-DPI Scaling:**
-   - Scale PyMuPDF rendering pixmaps by `window.devicePixelRatio` (1.5x - 2.5x) so high-resolution screens and zoom levels above 125% remain razor-sharp without pixelation.
 
 ---
 
@@ -757,10 +733,9 @@ Commercial PDF tools provide no pre-download transparency regarding file size ch
 | P1 | **Q6: Always-Available Left Page Rail** | 2.5 days | High | Planned |
 | P1 | **Q7: Pre-Flight Export Inspection & Metadata Sanitizer** | 1.5 days | High | Planned |
 
-### Phase 3 — Viewport & Typography Excellence (Week 4-5)
+### Phase 3 — Typography Excellence & Expansion (Week 4-5)
 | Priority | Feature / Upgrade | Effort | Impact | Status |
 |----------|-------------------|--------|--------|--------|
-| P1 | **Q2: Continuous Multi-Page Virtualized Canvas** | 5 days | Very High | Planned |
 | P1 | **Q4: Advanced Typography & Font Inpainting** | 3.5 days | Very High | Planned |
 | P2 | A9: OCR (Searchable PDF) | 3 days | High | Planned |
 | P2 | A11: Batch Processing | 2 days | Medium | Planned |
@@ -826,7 +801,6 @@ FastAPI + Uvicorn            # Web framework
 | Format Conversions | Full 2-way Word, Excel, PPT, PDF/A, Images | PDF to/from Word/Excel/PPT/Images | PDF Studio |
 | Mobile UX | Fully responsive + portrait drawer | Responsive + mobile app | Tie |
 | Spatial Precision | Smart Magnetic Guides & Snapping (Implemented) + 1pt Nudge (Planned) | None (manual eye alignment) | PDF Studio |
-| Viewport Flow | Continuous scroll (Planned) vs Single-page | Continuous scroll | SmallPDF (Current) |
 | Typography Inpainting | Font metadata & metric harmonizer (Planned) | Standard Arial/fallback substitution | PDF Studio (Planned) |
 | eSign Workflow | Image insert only | Draw/type/upload + send for signing | SmallPDF |
 | OCR | Not available | Pro feature | SmallPDF |
@@ -834,4 +808,4 @@ FastAPI + Uvicorn            # Web framework
 | Batch Processing | Not available | Pro feature | SmallPDF |
 | Cloud Integration | Not available | Google Drive, Dropbox, OneDrive | SmallPDF |
 
-**Verdict:** PDF Studio is already dominant in editing depth, security audit, true redaction, conversion flexibility, and 100% local privacy. By executing on the **Category Q** quality improvements (Smart Guides, Hotkey Nudging, Continuous Canvas, and Typography Inpainting), PDF Studio will surpass SmallPDF not just in tool breadth, but in **precision, tactile feel, and professional document quality**.
+**Verdict:** PDF Studio is already dominant in editing depth, security audit, true redaction, conversion flexibility, and 100% local privacy. By executing on the **Category Q** quality improvements (Smart Guides, Hotkey Nudging, Typography Inpainting, and Pre-Flight Inspection), PDF Studio will surpass SmallPDF not just in tool breadth, but in **precision, tactile feel, and professional document quality**.
