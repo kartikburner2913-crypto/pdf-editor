@@ -7080,19 +7080,30 @@ body.mobile-drawer-open {
 
 /* 2. Visual Undo/Redo Revision History Drawer */
 .history-timeline-drawer {
-  position: absolute;
-  top: 0;
+  position: fixed;
+  top: 56px;
   right: 0;
-  width: 320px;
+  bottom: 0;
+  width: 330px;
   max-width: 90vw;
-  height: 100%;
+  height: calc(100vh - 56px);
   background: var(--bg-surface, #ffffff);
   border-left: 1px solid var(--border-color, #e2e8f0);
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08);
-  z-index: 45;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   animation: slideDrawerIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (max-width: 899px) {
+  .history-timeline-drawer {
+    top: 50px;
+    height: calc(100dvh - 50px);
+    width: 300px;
+    max-width: 88vw;
+    z-index: 1050;
+  }
 }
 
 @keyframes slideDrawerIn {
@@ -7103,7 +7114,7 @@ body.mobile-drawer-open {
 [data-theme="dark"] .history-timeline-drawer {
   background: #0f172a;
   border-color: #334155;
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.45);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.55);
 }
 
 .history-drawer-header {

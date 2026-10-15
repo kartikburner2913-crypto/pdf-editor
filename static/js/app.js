@@ -832,19 +832,22 @@ function getActionTypeSvgIcon(actionType) {
 }
 
 function renderHistoryDrawerTimeline() {
-  if (!historyTimelineList) return;
-  if (historyTimelineDocName) {
-    historyTimelineDocName.textContent = state.filename || "document.pdf";
+  const list = document.getElementById("historyTimelineList") || historyTimelineList;
+  if (!list) return;
+  const nameEl = document.getElementById("historyTimelineDocName") || historyTimelineDocName;
+  if (nameEl) {
+    nameEl.textContent = state.filename || "document.pdf";
   }
   const timeline = state.historyTimeline || [];
-  if (historyTimelineCount) {
+  const countEl = document.getElementById("historyTimelineCount") || historyTimelineCount;
+  if (countEl) {
     const revCount = timeline.length;
-    historyTimelineCount.textContent = `${revCount} revision${revCount !== 1 ? 's' : ''}`;
+    countEl.textContent = `${revCount} revision${revCount !== 1 ? 's' : ''}`;
   }
 
-  historyTimelineList.innerHTML = "";
+  list.innerHTML = "";
   if (timeline.length === 0) {
-    historyTimelineList.innerHTML = `
+    list.innerHTML = `
       <div style="padding: 32px 16px; text-align: center; color: var(--text-muted, #94a3b8); font-size: 12px;">
         No revision history available.
       </div>
@@ -891,16 +894,32 @@ function renderHistoryDrawerTimeline() {
       jumpToRevision(item.version);
     });
 
-    historyTimelineList.appendChild(card);
+    list.appendChild(card);
   });
 }
 
+let _lastHistoryToggleTime = 0;
 function toggleHistoryDrawer(forceState) {
-  if (!historyTimelineDrawer) return;
-  const shouldOpen = forceState !== undefined ? forceState : (historyTimelineDrawer.style.display === "none");
+  const now = Date.now();
+  if (forceState === undefined && (now - _lastHistoryToggleTime) < 150) {
+    return;
+  }
+  _lastHistoryToggleTime = now;
+
+  const drawer = document.getElementById("historyTimelineDrawer") || historyTimelineDrawer;
+  if (!drawer) return;
+  const isClosed = drawer.style.display === "none" ||
+                   drawer.style.display === "" ||
+                   !drawer.classList.contains("open") ||
+                   window.getComputedStyle(drawer).display === "none";
+  const shouldOpen = forceState !== undefined ? Boolean(forceState) : isClosed;
+
+  const btn = document.getElementById("btnHistoryTimeline") || btnHistoryTimeline;
+
   if (shouldOpen) {
-    historyTimelineDrawer.style.display = "flex";
-    if (btnHistoryTimeline) btnHistoryTimeline.classList.add("active");
+    drawer.style.display = "flex";
+    drawer.classList.add("open");
+    if (btn) btn.classList.add("active");
     if (state.docId) {
       fetch(`/api/document/${state.docId}/history`)
         .then(r => r.ok ? r.json() : null)
@@ -913,10 +932,13 @@ function toggleHistoryDrawer(forceState) {
     }
     renderHistoryDrawerTimeline();
   } else {
-    historyTimelineDrawer.style.display = "none";
-    if (btnHistoryTimeline) btnHistoryTimeline.classList.remove("active");
+    drawer.style.display = "none";
+    drawer.classList.remove("open");
+    if (btn) btn.classList.remove("active");
   }
 }
+
+window.toggleHistoryDrawer = toggleHistoryDrawer;
 
 async function jumpToRevision(targetVersion) {
   if (!state.docId) return;
@@ -9193,6 +9215,7 @@ const COMMANDS = [
   { name: "Compress & Optimize PDF", category: "Tools", action: () => document.querySelector('[data-tab="tab-compress"]').click() },
   { name: "Security & Compliance Audit", category: "Tools", action: () => document.querySelector('[data-tab="tab-optimize"]').click() },
   { name: "All PDF Tools Directory", category: "Tools", action: () => window.showLandingPage() },
+  { name: "View Revision History Timeline", category: "Edit", action: () => toggleHistoryDrawer() },
   { name: "Download Edited PDF", category: "File", action: () => btnDownload.click() },
   { name: "Toggle Dark / Light Mode", category: "Theme", action: () => btnThemeToggle.click() }
 ];
@@ -9337,7 +9360,7 @@ function setupKeyboardShortcuts() {
     // Escape: Close modals, search bar, wysiwyg, cancel transform box, cancel measurements, deselect form field
     if (e.key === "Escape") {
       if (activeTransformBox) cancelTransformBox(false);
-      if (activeWysiwygBox) cancelWysiwyg();
+      if (typeof activeWysiwygBox !== "undefined" && activeWysiwygBox) cancelWysiwyg();
       closeSearchBar();
       if (state.activeTab === "tab-shapes" && state.shapesSubMode === "ruler") {
         if (typeof window.setShapesSubMode === "function") {
@@ -9352,6 +9375,10 @@ function setupKeyboardShortcuts() {
       }
       document.querySelectorAll(".modal.open").forEach(m => m.classList.remove("open"));
       if (thumbnailContextMenu) thumbnailContextMenu.style.display = "none";
+      const histDrawer = document.getElementById("historyTimelineDrawer");
+      if (histDrawer && histDrawer.style.display !== "none") {
+        toggleHistoryDrawer(false);
+      }
       return;
     }
 
