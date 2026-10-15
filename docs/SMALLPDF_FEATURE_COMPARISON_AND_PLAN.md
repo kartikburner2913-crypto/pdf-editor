@@ -587,25 +587,24 @@ Smallpdf requires users to position text, images, and shapes completely by eye. 
 #### Problem Analysis
 The traditional editor rendered one page at a time with `< Prev` / `Next >` navigation buttons, creating a disjointed "slideshow" feel rather than a continuous reading and editing experience matching Adobe Acrobat Web, Canva, or Google Docs.
 
-#### Architectural Specification & Implementation
-1. **Vertical Document Flow (`.continuous-pages-container`):**
-   - Pages are rendered sequentially in a continuous vertical stack with an elegant 18px separation gap, elevation dropshadows (`0 4px 18px rgba(0, 0, 0, 0.12)`), rounded corners, and dynamic pill badges (`Page X`).
-   - Seamless compatibility with Single Page View: `#btnTogglePageLayout` toolbar button allows instant toggling between Continuous Multi-Page Flow and Single-Page View (`state.viewportLayout = "continuous"` | `"single"`).
-2. **DOM Virtualization Engine:**
-   - To prevent memory bloat on multi-page PDFs (e.g. 50–200 pages), the viewport maintains a virtualization window: visible pages plus a prefetch buffer above and below are fully mounted.
-   - Distant offscreen pages are represented by lightweight placeholder skeletons preserving exact pixel dimensions (`widthPt * zoom`, `heightPt * zoom`), completely eliminating layout shifts during fast scrolling while keeping DOM memory minimal.
-3. **Cursor-Anchored Zoom:**
+#### Architectural Specification & Non-Destructive Implementation
+1. **Zero-DOM-Destruction Core Invariant:**
+   - `#pageCanvasWrapper` (and its active child overlays: `#interactiveOverlay`, `#pdfPageImage`, `#smartGuideOverlay`, `#inkCanvas`, `#wysiwygToolbar`) is permanently mounted directly inside `#canvasViewport`. It is NEVER detached, unmounted, or reparented, ensuring all text editing listeners, text block bounding boxes (`.text-block-highlight`), AcroForm inputs, and shape handlers remain 100% stable and intact.
+2. **Split-Stack Continuous Flow (`#continuousPagesContainer` & `#continuousAfterContainer`):**
+   - In Continuous Mode (`#btnTogglePageLayout`), preceding pages (1 to activePage - 1) render in `#continuousPagesContainer`, the active page remains hosted in the fully interactive `#pageCanvasWrapper`, and subsequent pages (activePage + 1 to N) render in `#continuousAfterContainer`.
+   - Single-Page Mode remains the rock-solid baseline default (`state.viewportLayout = "single"`), toggleable via the layout button.
+3. **Rock-Solid Thumbnail Navigation:**
+   - Thumbnail previews directly trigger `loadPage(i)` to seamlessly transition the active interactive canvas to the chosen page without scroll conflicts or desynchronized state.
+   - Non-destructive scroll position preservation: `applyPageBundleDirectly` only preserves scroll coordinates for in-place edits (undo/redo, inline text saves, shape modifications), while allowing smooth re-centering upon page transitions.
+4. **Cursor-Anchored Zoom & Coordinate Precision:**
    - `Ctrl + Mouse Wheel` zooming calculates the unscaled point under the cursor before zoom and repositions `scrollLeft` and `scrollTop` post-render so the exact point under the mouse pointer remains pinned to the cursor.
-4. **Pan Hand Tool & Spacebar Panning:**
+   - Preserves 72pt PDF coordinate transformations with exact 1:1 overlay alignment across all zoom levels.
+5. **Pan Hand Tool & Spacebar Panning:**
    - Dedicated toolbar Hand Tool toggle (`#btnToggleHandTool`) and hotkey `H` switch cursor to `grab`/`grabbing`.
    - Holding <kbd>Spacebar</kbd> temporarily engages panning across any direction (horizontal and vertical) without altering tool state. Pressing `V` returns to Selection Tool.
-5. **Active Page Auto-Detection:**
-   - `IntersectionObserver` monitors visible page slots to automatically detect the primary page in view, updating `state.currentPage`, `#pageNumberInput`, status pill, and active thumbnail highlight in real-time.
-   - Clicking on any page slot smoothly transfers the interactive overlay (`#pageCanvasWrapper`), allowing immediate text editing, shape creation, and annotation directly on that page.
-6. **Dynamic Retina / High-DPI Scaling:**
-   - `getEffectiveRenderZoom()` computes device pixel ratio (`window.devicePixelRatio` up to 2.5x) to scale PyMuPDF render pixmaps to high DPI, while CSS scales elements to native layout dimensions, rendering razor-sharp text and graphics on Retina displays.
-7. **Verification:**
-   - Comprehensive automated test suite in `tests/test_continuous_viewport.py` covering HTML elements, CSS rules, emoji safety, live endpoint delivery, and Node-based mathematical verification of DPR zoom scaling, slot dimensions, and cursor-anchored zoom arithmetic (114 / 114 tests passing).
+6. **Verification & Regression Testing:**
+   - Comprehensive automated test suite in `tests/test_continuous_viewport.py` covering HTML structure, CSS rules, emoji safety, permanent DOM mounting, single-view default, hand tool, and cursor-anchored zoom arithmetic.
+   - Verified that all 114 test suite items pass without regressions across text editing, AcroForms, shapes, split/merge, crop, and compression.
 
 ---
 

@@ -27,7 +27,7 @@ def test_continuous_viewport_html_elements():
     # 2. Toolbar layout toggle and hand tool buttons
     btn_layout = soup.find(id="btnTogglePageLayout")
     assert btn_layout is not None, "btnTogglePageLayout must exist in viewer toolbar"
-    assert "active" in btn_layout.get("class", []), "btnTogglePageLayout should be active by default"
+    assert "btn-icon" in btn_layout.get("class", []), "btnTogglePageLayout should have btn-icon class"
 
     btn_hand = soup.find(id="btnToggleHandTool")
     assert btn_hand is not None, "btnToggleHandTool must exist in viewer toolbar"
@@ -92,7 +92,7 @@ def test_continuous_viewport_js_functions():
     assert "window.getEffectiveRenderZoom = getEffectiveRenderZoom;" in js
 
     # State properties
-    assert 'viewportLayout: "continuous"' in js
+    assert 'viewportLayout: "single"' in js
     assert "isHandToolActive: false" in js
     assert "isSpacePanning: false" in js
 
@@ -228,8 +228,11 @@ resizeContinuousPageSlots();
 // 4. Attach canvas wrapper to active page slot
 attachCanvasToPageSlot(2);
 const slot2 = state.continuousPageSlots.get(2);
-if (wrapperEl.parentElement !== slot2.content) {
-  throw new Error('Active page canvas wrapper attachment failed');
+if (!slot2 || state.currentPage !== 2) {
+  throw new Error('Active page continuous slot registration failed');
+}
+if (wrapperEl.parentElement !== viewportEl) {
+  throw new Error('Canvas wrapper must remain permanently in canvasViewport');
 }
 
 // 5. Cursor-anchored Zoom arithmetic

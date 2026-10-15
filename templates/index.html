@@ -2663,7 +2663,7 @@
             <button id="btnToggleSnapping" class="btn-icon active" title="Smart Magnetic Alignment Guides &amp; Snapping (Hold Alt to bypass)">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v7a6 6 0 0 0 12 0V3"></path><line x1="4" y1="3" x2="8" y2="3"></line><line x1="16" y1="3" x2="20" y2="3"></line><line x1="4" y1="8" x2="8" y2="8"></line><line x1="16" y1="8" x2="20" y2="8"></line></svg>
             </button>
-            <button id="btnTogglePageLayout" class="btn-icon active" title="Toggle Continuous Scroll / Single Page View">
+            <button id="btnTogglePageLayout" class="btn-icon" title="Toggle Continuous Scroll / Single Page View">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="8" rx="1.5"></rect><rect x="4" y="14" width="16" height="8" rx="1.5"></rect></svg>
             </button>
             <button id="btnToggleHandTool" class="btn-icon" title="Pan Hand Tool (Hold Spacebar or press H)">
@@ -2691,7 +2691,7 @@
 
         <!-- Canvas Viewport with Interactive Overlay -->
         <div class="canvas-viewport" id="canvasViewport">
-          <!-- Continuous Multi-Page Virtualized Document Flow Container -->
+          <!-- Continuous Multi-Page Flow: Preceding Pages -->
           <div id="continuousPagesContainer" class="continuous-pages-container" style="display: none;"></div>
 
           <div class="page-canvas-wrapper" id="pageCanvasWrapper">
@@ -2732,6 +2732,9 @@
               </button>
             </div>
           </div>
+
+          <!-- Continuous Multi-Page Flow: Subsequent Pages -->
+          <div id="continuousAfterContainer" class="continuous-pages-container" style="display: none;"></div>
         </div>
       </section>
       
