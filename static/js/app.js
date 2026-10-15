@@ -56,6 +56,219 @@ let activeTransformBox = null;
 let activeImageBox = null;
 let activeCropBox = null;
 
+// ==========================================================================
+// Typography Harmonization Engine (Plan Q4)
+// Matches extracted PDF typefaces with Google Fonts & native system stacks,
+// loading web fonts on-demand with zero initial network bloat.
+// ==========================================================================
+
+const TYPOGRAPHY_REGISTRY = {
+  // Sans-Serif Fonts
+  "helv": {
+    name: "Helvetica / Arial",
+    family: "Helvetica, Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    googleFont: null,
+    category: "sans",
+    baseFont: "helv"
+  },
+  "inter": {
+    name: "Inter",
+    family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    googleFont: "Inter:wght@300;400;500;600;700;800;900",
+    category: "sans",
+    baseFont: "helv"
+  },
+  "roboto": {
+    name: "Roboto",
+    family: "'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    googleFont: "Roboto:ital,wght@0,300;0,400;0,500;0,700;1,400;1,700",
+    category: "sans",
+    baseFont: "helv"
+  },
+  "open_sans": {
+    name: "Open Sans",
+    family: "'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    googleFont: "Open+Sans:ital,wght@0,300;0,400;0,600;0,700;1,400",
+    category: "sans",
+    baseFont: "helv"
+  },
+  "montserrat": {
+    name: "Montserrat",
+    family: "'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif",
+    googleFont: "Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400",
+    category: "sans",
+    baseFont: "helv"
+  },
+  "poppins": {
+    name: "Poppins",
+    family: "'Poppins', -apple-system, BlinkMacSystemFont, sans-serif",
+    googleFont: "Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400",
+    category: "sans",
+    baseFont: "helv"
+  },
+  "lato": {
+    name: "Lato",
+    family: "'Lato', -apple-system, BlinkMacSystemFont, sans-serif",
+    googleFont: "Lato:ital,wght@0,300;0,400;0,700;1,400",
+    category: "sans",
+    baseFont: "helv"
+  },
+
+  // Serif Fonts
+  "times": {
+    name: "Times New Roman",
+    family: "'Times New Roman', Times, 'Liberation Serif', Georgia, serif",
+    googleFont: null,
+    category: "serif",
+    baseFont: "times"
+  },
+  "georgia": {
+    name: "Georgia",
+    family: "Georgia, 'Times New Roman', serif",
+    googleFont: null,
+    category: "serif",
+    baseFont: "times"
+  },
+  "merriweather": {
+    name: "Merriweather",
+    family: "'Merriweather', Georgia, 'Times New Roman', serif",
+    googleFont: "Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400",
+    category: "serif",
+    baseFont: "times"
+  },
+  "playfair": {
+    name: "Playfair Display",
+    family: "'Playfair Display', Georgia, serif",
+    googleFont: "Playfair+Display:ital,wght@0,400;0,600;0,700;1,400",
+    category: "serif",
+    baseFont: "times"
+  },
+  "lora": {
+    name: "Lora",
+    family: "'Lora', Georgia, 'Times New Roman', serif",
+    googleFont: "Lora:ital,wght@0,400;0,500;0,600;0,700;1,400",
+    category: "serif",
+    baseFont: "times"
+  },
+
+  // Monospace Fonts
+  "couri": {
+    name: "Courier New",
+    family: "'Courier New', Courier, 'Liberation Mono', Menlo, monospace",
+    googleFont: null,
+    category: "mono",
+    baseFont: "couri"
+  },
+  "jetbrains": {
+    name: "JetBrains Mono",
+    family: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+    googleFont: "JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400",
+    category: "mono",
+    baseFont: "couri"
+  },
+  "roboto_mono": {
+    name: "Roboto Mono",
+    family: "'Roboto Mono', 'Courier New', monospace",
+    googleFont: "Roboto+Mono:ital,wght@0,400;0,500;0,700;1,400",
+    category: "mono",
+    baseFont: "couri"
+  }
+};
+
+const loadedWebFonts = new Set();
+
+function loadWebFontOnDemand(fontKey) {
+  if (!fontKey) return;
+  const fontDef = TYPOGRAPHY_REGISTRY[fontKey];
+  if (!fontDef || !fontDef.googleFont || loadedWebFonts.has(fontKey)) return;
+
+  try {
+    const linkId = `webfont-${fontKey}`;
+    if (!document.getElementById(linkId)) {
+      const link = document.createElement("link");
+      link.id = linkId;
+      link.rel = "stylesheet";
+      link.href = `https://fonts.googleapis.com/css2?family=${fontDef.googleFont}&display=swap`;
+      document.head.appendChild(link);
+    }
+    loadedWebFonts.add(fontKey);
+  } catch (err) {
+    console.warn("Could not load Google Web Font:", fontKey, err);
+  }
+}
+
+function resolveTypographyMatch(block) {
+  if (!block) {
+    return {
+      fontKey: "helv",
+      name: "Helvetica / Arial",
+      family: TYPOGRAPHY_REGISTRY["helv"].family,
+      fontWeight: 400,
+      fontStyle: "normal",
+      letterSpacingPt: 0,
+      lineHeightRatio: 1.35
+    };
+  }
+
+  const rawFont = (block.raw_font || block.postscript_font || block.font_name || "").toLowerCase();
+  const family = (block.font_family || "").toLowerCase();
+  const isBold = Boolean(block.is_bold);
+  const isItalic = Boolean(block.is_italic);
+  const weight = block.font_weight || (isBold ? 700 : 400);
+  const tracking = typeof block.letter_spacing_pt === "number" ? block.letter_spacing_pt : 0;
+  const lineHeightRatio = typeof block.line_height_ratio === "number" ? block.line_height_ratio : 1.35;
+
+  let matchedKey = "helv";
+
+  // Check family and rawFont strings
+  if (family.includes("jetbrains") || rawFont.includes("jetbrains")) {
+    matchedKey = "jetbrains";
+  } else if (family.includes("roboto mono") || (rawFont.includes("roboto") && rawFont.includes("mono"))) {
+    matchedKey = "roboto_mono";
+  } else if (family.includes("courier") || rawFont.includes("couri") || rawFont.includes("cour")) {
+    matchedKey = "couri";
+  } else if (family.includes("inter") || rawFont.includes("inter")) {
+    matchedKey = "inter";
+  } else if (family.includes("montserrat") || rawFont.includes("montserrat")) {
+    matchedKey = "montserrat";
+  } else if (family.includes("poppins") || rawFont.includes("poppins")) {
+    matchedKey = "poppins";
+  } else if (family.includes("open sans") || rawFont.includes("opensans")) {
+    matchedKey = "open_sans";
+  } else if (family.includes("roboto") || rawFont.includes("roboto")) {
+    matchedKey = "roboto";
+  } else if (family.includes("lato") || rawFont.includes("lato")) {
+    matchedKey = "lato";
+  } else if (family.includes("playfair") || rawFont.includes("playfair")) {
+    matchedKey = "playfair";
+  } else if (family.includes("merriweather") || rawFont.includes("merriweather")) {
+    matchedKey = "merriweather";
+  } else if (family.includes("lora") || rawFont.includes("lora")) {
+    matchedKey = "lora";
+  } else if (family.includes("georgia") || rawFont.includes("georgia")) {
+    matchedKey = "georgia";
+  } else if (family.includes("times") || rawFont.includes("time") || rawFont.includes("roman") || rawFont.includes("serif") || rawFont.includes("tiro") || rawFont.includes("tibo")) {
+    matchedKey = "times";
+  } else if (rawFont.includes("mono") || rawFont.includes("code") || rawFont.includes("typewriter") || rawFont.includes("consolas")) {
+    matchedKey = "couri";
+  } else {
+    matchedKey = "helv";
+  }
+
+  loadWebFontOnDemand(matchedKey);
+  const reg = TYPOGRAPHY_REGISTRY[matchedKey] || TYPOGRAPHY_REGISTRY["helv"];
+
+  return {
+    fontKey: matchedKey,
+    name: reg.name,
+    family: reg.family,
+    fontWeight: weight,
+    fontStyle: isItalic ? "italic" : (block.font_style || "normal"),
+    letterSpacingPt: tracking,
+    lineHeightRatio: lineHeightRatio
+  };
+}
+
 // DOM Elements
 const uploadSection = document.getElementById("uploadSection");
 const workspaceSection = document.getElementById("workspaceSection");
@@ -1178,18 +1391,10 @@ function selectBlockForEdit(block, divElement) {
   }
   blockEditColor.value = hexCol;
 
-  // Populate font family
-  let fontVal = "helv";
+  // Populate font family & typography match
+  const typo = resolveTypographyMatch(block);
   if (blockEditFont) {
-    const fn = (block.font_name || block.raw_font || "").toLowerCase();
-    if (fn.includes("time") || fn.includes("roman") || fn.includes("serif") || fn.includes("tiro") || fn.includes("tibo")) {
-      fontVal = "times";
-    } else if (fn.includes("couri") || fn.includes("mono") || fn.includes("code") || fn.includes("cour") || fn.includes("cobo")) {
-      fontVal = "couri";
-    } else if (fn.includes("helv") || fn.includes("arial") || fn.includes("sans") || fn.includes("hebo")) {
-      fontVal = "helv";
-    }
-    blockEditFont.value = fontVal;
+    blockEditFont.value = typo.fontKey;
   }
 
   // Populate bold / italic styles
@@ -1235,7 +1440,7 @@ function selectBlockForEdit(block, divElement) {
   const fontSizePx = Math.max(12, fontSize * scaleY);
   const textLines = (block.text || "").split("\n").length;
   const widthPx = Math.max(origW + 14, 140);
-  const heightPx = Math.max(origH + 6, fontSizePx * 1.35 * textLines + 10);
+  const heightPx = Math.max(origH + 6, fontSizePx * (typo.lineHeightRatio || 1.35) * textLines + 10);
 
   initLiveTextTransformBox({
     mode: "edit",
@@ -1245,7 +1450,11 @@ function selectBlockForEdit(block, divElement) {
     heightPx: heightPx,
     text: block.text,
     fontSize: fontSize,
-    fontName: fontVal,
+    fontName: typo.fontKey,
+    fontFamily: typo.family,
+    fontWeight: typo.fontWeight,
+    letterSpacingPt: typo.letterSpacingPt,
+    lineHeightRatio: typo.lineHeightRatio,
     textColor: hexCol,
     isBold: Boolean(block.is_bold),
     isItalic: Boolean(block.is_italic),
@@ -2730,6 +2939,9 @@ function setupCanvasDrawing() {
     // Direct Click-to-Type Live Text Box placement
     if (state.activeTab === "tab-add") {
       const rect = interactiveOverlay.getBoundingClientRect();
+      const chosenFont = document.getElementById("newTextFont")?.value || "helv";
+      loadWebFontOnDemand(chosenFont);
+      const reg = TYPOGRAPHY_REGISTRY[chosenFont] || TYPOGRAPHY_REGISTRY["helv"];
       initLiveTextTransformBox({
         mode: "add",
         leftPx: e.clientX - rect.left,
@@ -2739,7 +2951,9 @@ function setupCanvasDrawing() {
         text: "",
         fontSize: parseFloat(document.getElementById("newTextFontSize")?.value) || 14,
         textColor: document.getElementById("newTextColor")?.value || "#000000",
-        fontName: document.getElementById("newTextFont")?.value || "helv"
+        fontName: chosenFont,
+        fontFamily: reg.family,
+        fontWeight: 400
       });
       return;
     }
@@ -3060,6 +3274,10 @@ function initLiveTextTransformBox(options = {}) {
   let currentText = options.text || "";
   let currentFontSize = options.fontSize || 14;
   let currentFontName = options.fontName || "helv";
+  let currentFontFamily = options.fontFamily || null;
+  let currentFontWeight = options.fontWeight || (Boolean(options.isBold) ? 700 : 400);
+  let currentLetterSpacingPt = typeof options.letterSpacingPt === "number" ? options.letterSpacingPt : 0;
+  let currentLineHeightRatio = typeof options.lineHeightRatio === "number" ? options.lineHeightRatio : 1.35;
   let currentColor = options.textColor || "#000000";
   let currentBold = Boolean(options.isBold);
   let currentItalic = Boolean(options.isItalic);
@@ -3252,7 +3470,7 @@ function initLiveTextTransformBox(options = {}) {
     if (isAutoHeight || forceExpand) {
       textarea.style.height = "1px";
       const effFontSizePx = Math.max(10, currentFontSize * (1.0 / scaleY));
-      const minH = Math.max(initialMinH, effFontSizePx * 1.35 + 8);
+      const minH = Math.max(initialMinH, effFontSizePx * (currentLineHeightRatio || 1.35) + 8);
       const neededH = Math.max(minH, textarea.scrollHeight + 6);
       
       const curT = parseFloat(box.style.top) || 0;
@@ -3280,16 +3498,40 @@ function initLiveTextTransformBox(options = {}) {
     const effFontSizePx = Math.max(10, currentFontSize * (1.0 / scaleY));
     textarea.style.fontSize = `${effFontSizePx}px`;
     textarea.style.color = currentColor;
-    textarea.style.fontWeight = currentBold ? "bold" : "normal";
+    textarea.style.fontWeight = currentBold ? (currentFontWeight > 600 ? currentFontWeight : 700) : (currentFontWeight || "normal");
     textarea.style.fontStyle = currentItalic ? "italic" : "normal";
     textarea.style.textAlign = currentAlign === 1 ? "center" : (currentAlign === 2 ? "right" : "left");
-    if (currentFontName.includes("times") || currentFontName.includes("serif") || currentFontName.includes("ti")) {
-      textarea.style.fontFamily = "Times New Roman, serif";
+    
+    // On-demand typography match
+    loadWebFontOnDemand(currentFontName);
+    const reg = TYPOGRAPHY_REGISTRY[currentFontName];
+    if (reg) {
+      textarea.style.fontFamily = reg.family;
+    } else if (currentFontFamily) {
+      textarea.style.fontFamily = currentFontFamily;
+    } else if (currentFontName.includes("times") || currentFontName.includes("serif") || currentFontName.includes("ti")) {
+      textarea.style.fontFamily = "'Times New Roman', Times, serif";
     } else if (currentFontName.includes("couri") || currentFontName.includes("mono") || currentFontName.includes("cour") || currentFontName.includes("co")) {
-      textarea.style.fontFamily = "Courier New, monospace";
+      textarea.style.fontFamily = "'Courier New', Courier, monospace";
     } else {
       textarea.style.fontFamily = "Helvetica, Arial, sans-serif";
     }
+
+    // Kerning & Letter-Spacing harmonization (points converted to screen px)
+    if (currentLetterSpacingPt && Math.abs(currentLetterSpacingPt) > 0.05) {
+      const trackingPx = currentLetterSpacingPt * (1.0 / scaleX);
+      textarea.style.letterSpacing = `${trackingPx.toFixed(2)}px`;
+    } else {
+      textarea.style.letterSpacing = "normal";
+    }
+
+    // Line height harmonization
+    if (currentLineHeightRatio && currentLineHeightRatio >= 0.8 && currentLineHeightRatio <= 3.0) {
+      textarea.style.lineHeight = `${currentLineHeightRatio}`;
+    } else {
+      textarea.style.lineHeight = "1.35";
+    }
+
     autoFitTextarea();
   }
   syncTextareaStyles();
@@ -3335,9 +3577,27 @@ function initLiveTextTransformBox(options = {}) {
   toolbar.innerHTML = `
     <div class="tb-group tb-formatting-group">
       <select class="tb-font-select" title="Font Family">
-        <option value="helv" ${currentFontName === 'helv' ? 'selected' : ''}>Helvetica</option>
-        <option value="times" ${currentFontName === 'times' ? 'selected' : ''}>Times</option>
-        <option value="couri" ${currentFontName === 'couri' ? 'selected' : ''}>Courier</option>
+        <optgroup label="Sans-Serif">
+          <option value="helv" ${currentFontName === 'helv' ? 'selected' : ''}>Helvetica</option>
+          <option value="inter" ${currentFontName === 'inter' ? 'selected' : ''}>Inter</option>
+          <option value="roboto" ${currentFontName === 'roboto' ? 'selected' : ''}>Roboto</option>
+          <option value="open_sans" ${currentFontName === 'open_sans' ? 'selected' : ''}>Open Sans</option>
+          <option value="montserrat" ${currentFontName === 'montserrat' ? 'selected' : ''}>Montserrat</option>
+          <option value="poppins" ${currentFontName === 'poppins' ? 'selected' : ''}>Poppins</option>
+          <option value="lato" ${currentFontName === 'lato' ? 'selected' : ''}>Lato</option>
+        </optgroup>
+        <optgroup label="Serif">
+          <option value="times" ${currentFontName === 'times' ? 'selected' : ''}>Times</option>
+          <option value="georgia" ${currentFontName === 'georgia' ? 'selected' : ''}>Georgia</option>
+          <option value="merriweather" ${currentFontName === 'merriweather' ? 'selected' : ''}>Merriweather</option>
+          <option value="playfair" ${currentFontName === 'playfair' ? 'selected' : ''}>Playfair</option>
+          <option value="lora" ${currentFontName === 'lora' ? 'selected' : ''}>Lora</option>
+        </optgroup>
+        <optgroup label="Monospace">
+          <option value="couri" ${currentFontName === 'couri' ? 'selected' : ''}>Courier</option>
+          <option value="jetbrains" ${currentFontName === 'jetbrains' ? 'selected' : ''}>JetBrains Mono</option>
+          <option value="roboto_mono" ${currentFontName === 'roboto_mono' ? 'selected' : ''}>Roboto Mono</option>
+        </optgroup>
       </select>
       <button type="button" class="size-stepper-btn tb-size-dec" title="Decrease Font Size">-</button>
       <input type="number" class="tb-size-input" value="${Math.round(currentFontSize)}" min="6" max="96" style="width: 28px; text-align: center;" />
@@ -3470,9 +3730,33 @@ function initLiveTextTransformBox(options = {}) {
 
   selFont.addEventListener("change", (e) => {
     currentFontName = e.target.value;
+    loadWebFontOnDemand(currentFontName);
+    const reg = TYPOGRAPHY_REGISTRY[currentFontName];
+    if (reg) {
+      currentFontFamily = reg.family;
+    }
     if (blockEditFont) blockEditFont.value = currentFontName;
     syncTextareaStyles();
   });
+
+  if (blockEditFont) {
+    const onSidebarFontChange = () => {
+      if (blockEditFont.value !== "auto" && blockEditFont.value !== currentFontName) {
+        currentFontName = blockEditFont.value;
+        if (selFont) selFont.value = currentFontName;
+        loadWebFontOnDemand(currentFontName);
+        const reg = TYPOGRAPHY_REGISTRY[currentFontName];
+        if (reg) currentFontFamily = reg.family;
+        syncTextareaStyles();
+      }
+    };
+    blockEditFont.addEventListener("change", onSidebarFontChange);
+    const prevCleanup = box._cleanup;
+    box._cleanup = () => {
+      blockEditFont.removeEventListener("change", onSidebarFontChange);
+      if (prevCleanup) prevCleanup();
+    };
+  }
   inSize.addEventListener("input", (e) => {
     currentFontSize = parseFloat(e.target.value) || 12;
     if (blockEditSize) blockEditSize.value = currentFontSize;
@@ -3497,6 +3781,7 @@ function initLiveTextTransformBox(options = {}) {
   });
   btnB.addEventListener("click", () => {
     currentBold = !currentBold;
+    currentFontWeight = currentBold ? 700 : 400;
     btnB.classList.toggle("active", currentBold);
     if (btnBlockBold) btnBlockBold.classList.toggle("active", currentBold);
     syncTextareaStyles();
@@ -5166,6 +5451,7 @@ function setupToolActions() {
     const bgColor = hasBox ? hexToRgb(document.getElementById("newTextBgColor").value) : null;
 
     setLoading(true, "Adding text to page...");
+    const chosenFont = document.getElementById("newTextFont")?.value || "helv";
     const payload = {
       annotations: [{
         page: state.currentPage,
@@ -5173,6 +5459,7 @@ function setupToolActions() {
         y: y,
         text: text,
         font_size: fontSize,
+        font_name: chosenFont,
         color: color,
         bg_color: bgColor,
         width: width,

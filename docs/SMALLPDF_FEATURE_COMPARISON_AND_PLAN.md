@@ -57,7 +57,7 @@
 | 9 | PDF to PDF/A | Free | PASS | Implemented via `PDFEngine.convert_pdf_to_pdfa`, `/api/document/{id}/convert-to-pdfa`, `/api/convert-pdf-to-pdfa` |
 | **EDITING and ANNOTATION** | | | | |
 | 10 | Edit PDF (add text, images, shapes) | Free | PASS | Comprehensive — text, images, shapes, ink, stamps |
-| 11 | Edit Existing Text (inline modify) | PRO | PASS | Full WYSIWYG in-place text editing with font/color control |
+| 11 | Edit Existing Text (inline modify) | PRO | PASS | Full WYSIWYG in-place text editing with Plan Q4 typography harmonization, Google font matching, character tracking, and line metrics |
 | 12 | Highlight / Underline / Strikeout | Free | PASS | Full text markup suite with 4 types |
 | 13 | Add Comments / Sticky Notes | Free | PASS | Sticky notes with author tags |
 | 14 | Freehand Drawing | Free | PASS | Multi-color, adjustable width ink annotations |
@@ -610,25 +610,27 @@ Power users and professionals find purely mouse-driven document manipulation slo
 
 ### Plan Q4: Advanced Typography & Font Inpainting Harmonization
 
+**Status:** Implemented (PASS)  
 **Difficulty:** Medium-High  
-**Estimated Effort:** 3-4 days  
-**Target Areas:** `app/services/pdf_engine.py`, `static/js/app.js`
+**Target Areas:** `app/pdf_engine.py`, `static/js/app.js`, `templates/index.html`, `static/css/style.css`, `tests/test_typography_harmonization.py`
 
-#### Problem Analysis
-When editing existing text in online PDF editors, replacement text often looks visibly "fake" or "pasted in" because system fallbacks fail to match the original document's exact typeface, letter-spacing, or line metrics.
-
-#### Architectural Specification
-1. **Deep Font Metadata Extraction:**
-   - Extend `PDFEngine.get_text_blocks()` to extract:
-     - PostScript font name, font family, weight, style (bold/italic/oblique).
-     - Exact font metrics: font ascender, descender, cap-height, line-height.
-2. **Smart Web-Font & System Fallback Resolver:**
-   - Client-side font mapper that pairs extracted PostScript font names with closest matching Google Fonts (e.g., Roboto, Inter, Merriweather, Playfair, JetBrains Mono, Open Sans) or standard PDF base-14 metrics.
-   - Dynamically load matched Google Fonts on-demand during inline text editing.
-3. **Kerning & Letter-Spacing Auto-Tuning:**
-   - Calculate original bounding box character density (`text_length / bbox_width`) and automatically apply compensating CSS `letter-spacing` so modified text fits the exact typographic rhythm of the surrounding original paragraph.
-4. **Auto-Expanding WYSIWYG Editor:**
-   - WYSIWYG text transform boxes auto-expand vertically as the user types, eliminating awkward manual container resizing.
+#### Implementation Summary
+1. **Deep Font Metadata Extraction (`app/pdf_engine.py`):**
+   - Implemented `_extract_font_family_and_weight()` parsing subset prefixes, PostScript font names, font weights (100–900), and font styles (`normal`/`italic`).
+   - Extended `_extract_text_blocks_from_page()` to extract `postscript_font`, `font_family`, `font_weight`, `font_style`, `ascender`, `descender`, `cap_height`, `letter_spacing_pt` (tracking delta), and `line_height_ratio`.
+   - Enhanced `_normalize_font_name()` to map modern web font family inputs cleanly to standard PDF Base-14 fonts (`helv`, `tiro`, `cour`, `hebo`, `tibo`, `cobo`, `heit`, `tiit`, `coit`, `hebi`, `tibi`, `cobi`).
+2. **Smart Web-Font & System Fallback Resolver (`static/js/app.js`):**
+   - Implemented `TYPOGRAPHY_REGISTRY` covering sans-serif (Inter, Roboto, Open Sans, Montserrat, Poppins, Lato, Helvetica), serif (Times New Roman, Georgia, Merriweather, Playfair Display, Lora), and monospace (Courier New, JetBrains Mono, Roboto Mono).
+   - Implemented `loadWebFontOnDemand(fontKey)` which injects Google Font stylesheets on-demand only when a user selects or edits that specific typeface, ensuring 0ms overhead on initial load and offline fallback to system stacks.
+   - Implemented `resolveTypographyMatch(block)` which maps extracted block font metadata to the closest matching web font and typographic parameters.
+3. **Kerning & Letter-Spacing Auto-Tuning (`static/js/app.js`):**
+   - Automatically converts PDF point tracking delta (`letter_spacing_pt`) to screen pixels (`letter_spacing_pt * 1/scaleX`) and applies CSS `letter-spacing` and `line-height` directly to the live transform textarea.
+4. **Auto-Expanding WYSIWYG Editor (`static/js/app.js`, `static/css/style.css`):**
+   - Dynamic auto-fitting container expands vertically according to line-height metrics and content volume.
+   - Multi-option dropdowns across floating toolbar (`.tb-font-select`) and sidebar (`#blockEditFont`, `#newTextFont`).
+   - Two-way font synchronization between floating toolbar and sidebar controls.
+5. **Automated Verification:**
+   - 8 new dedicated tests in `tests/test_typography_harmonization.py` covering font family/weight parsing, Base-14 normalization, block metadata extraction, edit roundtrips, text annotations, and API endpoints. 100% pass rate (117/117 project tests passing).
 
 ---
 

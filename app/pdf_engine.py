@@ -286,6 +286,9 @@ class PDFEngine:
         finally:
             doc.close()
 
+    # Alias for get_page_text_blocks
+    get_text_blocks = get_page_text_blocks
+
     @staticmethod
     def _extract_text_blocks_from_page(page: fitz.Page, page_number: int = 1) -> List[Dict[str, Any]]:
         text_dict = page.get_text("dict")
@@ -417,6 +420,42 @@ class PDFEngine:
                         is_italic = any(f & 2 or "italic" in fn.lower() or "oblique" in fn.lower() for f, fn in zip(flags_list, font_names))
                         norm_font = PDFEngine._normalize_font_name(primary_font, is_bold=is_bold, is_italic=is_italic)
 
+                        clean_family, font_weight, font_style = PDFEngine._extract_font_family_and_weight(
+                            primary_font, flags_list[0] if flags_list else 0
+                        )
+
+                        # Extract font ascender / descender
+                        ascenders = [s.get("ascender") for s in all_spans if s.get("ascender") is not None]
+                        descenders = [s.get("descender") for s in all_spans if s.get("descender") is not None]
+                        avg_ascender = round(sum(ascenders) / len(ascenders), 2) if ascenders else 0.8
+                        avg_descender = round(sum(descenders) / len(descenders), 2) if descenders else -0.2
+
+                        # Compute average character tracking / letter spacing delta in points
+                        tracking_vals = []
+                        for l in group:
+                            ltxt = l.get("text", "").strip()
+                            if len(ltxt) > 1 and primary_size > 0:
+                                lw = l["bbox"][2] - l["bbox"][0]
+                                try:
+                                    expected_w = fitz.get_text_length(ltxt, fontname=norm_font, fontsize=primary_size)
+                                except Exception:
+                                    expected_w = len(ltxt) * primary_size * 0.52
+                                diff_pt = (lw - expected_w) / max(1, len(ltxt) - 1)
+                                if abs(diff_pt) < 5.0:
+                                    tracking_vals.append(max(-1.5, min(3.0, diff_pt)))
+                        avg_tracking = round(sum(tracking_vals) / len(tracking_vals), 2) if tracking_vals else 0.0
+
+                        # Compute average line height ratio for multiline blocks
+                        line_spacing_ratios = []
+                        if len(group) > 1 and primary_size > 0:
+                            for idx in range(len(group) - 1):
+                                dy = group[idx + 1]["bbox"][1] - group[idx]["bbox"][1]
+                                if dy > 0:
+                                    ratio = dy / primary_size
+                                    if 0.8 <= ratio <= 3.0:
+                                        line_spacing_ratios.append(ratio)
+                        avg_line_height = round(sum(line_spacing_ratios) / len(line_spacing_ratios), 2) if line_spacing_ratios else 1.35
+
                         blocks_result.append({
                             "id": f"block_{page_number}_{block_counter}",
                             "page": page_number,
@@ -426,6 +465,15 @@ class PDFEngine:
                             "font_size": round(primary_size, 1),
                             "font_name": norm_font,
                             "raw_font": primary_font,
+                            "postscript_font": primary_font,
+                            "font_family": clean_family,
+                            "font_weight": font_weight,
+                            "font_style": font_style,
+                            "ascender": avg_ascender,
+                            "descender": avg_descender,
+                            "cap_height": round(avg_ascender * 0.88, 2),
+                            "letter_spacing_pt": avg_tracking,
+                            "line_height_ratio": avg_line_height,
                             "is_bold": is_bold,
                             "is_italic": is_italic,
                             "color": [round(r, 3), round(g, 3), round(b_c, 3)],
@@ -439,6 +487,103 @@ class PDFEngine:
             return blocks_result
 
     @staticmethod
+    def _extract_font_family_and_weight(raw_font: str, flags: int = 0) -> Tuple[str, int, str]:
+        """Extract clean font family, numeric weight (100-900), and style (normal/italic) from font name and flags."""
+        if not raw_font:
+            return ("Helvetica", 400, "normal")
+            
+        clean = raw_font.strip()
+        # 1. Strip 6-char subset prefix (e.g. 'ABCDEF+FontName')
+        if "+" in clean and len(clean.split("+")[0]) == 6:
+            clean = clean.split("+", 1)[1]
+            
+        fn_lower = clean.lower()
+        
+        # 2. Detect style
+        is_italic = bool(flags & 2) or ("italic" in fn_lower) or ("oblique" in fn_lower) or ("-it" in fn_lower)
+        style = "italic" if is_italic else "normal"
+        
+        # 3. Detect weight
+        is_bold_flag = bool(flags & 16)
+        if "black" in fn_lower or "heavy" in fn_lower:
+            weight = 900
+        elif "extrabold" in fn_lower or "ultrabold" in fn_lower:
+            weight = 800
+        elif "semibold" in fn_lower or "demibold" in fn_lower:
+            weight = 600
+        elif "bold" in fn_lower or is_bold_flag or "-bo" in fn_lower:
+            weight = 700
+        elif "medium" in fn_lower:
+            weight = 500
+        elif "light" in fn_lower or "thin" in fn_lower or "hairline" in fn_lower:
+            weight = 300
+        else:
+            weight = 400
+            
+        # 4. Extract family name
+        base_name = re.split(r"[-_,]", clean)[0]
+        base_name = re.sub(r"(PSMT|PS|MT|OTF|TTF|Pro|Std)$", "", base_name, flags=re.IGNORECASE).strip()
+        spaced_name = re.sub(r"([a-z])([A-Z])", r"\1 \2", base_name)
+        
+        lower_spaced = spaced_name.lower().replace(" ", "")
+        if "times" in lower_spaced or "roman" in lower_spaced:
+            family = "Times New Roman"
+        elif "arial" in lower_spaced:
+            family = "Arial"
+        elif "helv" in lower_spaced:
+            family = "Helvetica"
+        elif "calibri" in lower_spaced or "aptos" in lower_spaced:
+            family = "Calibri"
+        elif "courier" in lower_spaced:
+            family = "Courier New"
+        elif "segoe" in lower_spaced:
+            family = "Segoe UI"
+        elif "roboto" in lower_spaced and "mono" in lower_spaced:
+            family = "Roboto Mono"
+        elif "roboto" in lower_spaced:
+            family = "Roboto"
+        elif "opensans" in lower_spaced:
+            family = "Open Sans"
+        elif "inter" in lower_spaced:
+            family = "Inter"
+        elif "montserrat" in lower_spaced:
+            family = "Montserrat"
+        elif "poppins" in lower_spaced:
+            family = "Poppins"
+        elif "lato" in lower_spaced:
+            family = "Lato"
+        elif "georgia" in lower_spaced:
+            family = "Georgia"
+        elif "garamond" in lower_spaced:
+            family = "Garamond"
+        elif "merriweather" in lower_spaced:
+            family = "Merriweather"
+        elif "playfair" in lower_spaced:
+            family = "Playfair Display"
+        elif "lora" in lower_spaced:
+            family = "Lora"
+        elif "verdana" in lower_spaced:
+            family = "Verdana"
+        elif "tahoma" in lower_spaced:
+            family = "Tahoma"
+        elif "trebuchet" in lower_spaced:
+            family = "Trebuchet MS"
+        elif "centurygothic" in lower_spaced:
+            family = "Century Gothic"
+        elif "jetbrains" in lower_spaced:
+            family = "JetBrains Mono"
+        elif "consolas" in lower_spaced:
+            family = "Consolas"
+        elif "fira" in lower_spaced:
+            family = "Fira Code" if "code" in lower_spaced else "Fira Sans"
+        elif spaced_name:
+            family = spaced_name
+        else:
+            family = "Helvetica"
+            
+        return (family, weight, style)
+
+    @staticmethod
     def _normalize_font_name(font_name: str, is_bold: bool = False, is_italic: bool = False) -> str:
         """Map generic / css font names and style flags to PyMuPDF standard 14 font identifiers."""
         if not font_name:
@@ -450,9 +595,9 @@ class PDFEngine:
             if "italic" in fn or "oblique" in fn or "-it" in fn or fn == "i" or fn in ["heit", "tiit", "coit"]:
                 is_italic = True
             
-            if "time" in fn or "roman" in fn or "serif" in fn or "tiro" in fn:
+            if "time" in fn or "roman" in fn or "serif" in fn or "tiro" in fn or "georgia" in fn or "merriweather" in fn or "playfair" in fn or "lora" in fn or "garamond" in fn:
                 base = "times"
-            elif "courier" in fn or "mono" in fn or "typewriter" in fn or "cour" in fn:
+            elif "courier" in fn or "mono" in fn or "typewriter" in fn or "cour" in fn or "jetbrains" in fn or "consolas" in fn or "robotomono" in fn:
                 base = "couri"
             elif "symbol" in fn:
                 return "symbol"

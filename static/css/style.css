@@ -3658,7 +3658,8 @@ textarea.form-overlay-widget {
 }
 
 .transform-floating-toolbar select.tb-font-select {
-  width: 76px;
+  min-width: 80px;
+  max-width: 110px;
 }
 
 [data-theme="dark"] .transform-floating-toolbar select {
