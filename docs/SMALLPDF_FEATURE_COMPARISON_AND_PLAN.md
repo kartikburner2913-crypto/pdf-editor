@@ -15,8 +15,10 @@
 5. [Category C — Features At Parity or Better](#category-c--features-at-parity-or-better)
 6. [Implementation Plans — Missing Features](#implementation-plans--missing-features)
 7. [Implementation Plans — Quality Upgrades](#implementation-plans--quality-upgrades)
-8. [Priority Roadmap](#priority-roadmap)
-9. [Technical Dependencies](#technical-dependencies)
+8. [Category Q — Architectural & UX Quality Beyond Smallpdf](#category-q--architectural--ux-quality-beyond-smallpdf)
+9. [Priority Roadmap](#priority-roadmap)
+10. [Technical Dependencies](#technical-dependencies)
+11. [Summary of Competitive Position](#summary-of-competitive-position)
 
 ---
 
@@ -517,61 +519,253 @@ httpx>=0.27.0
 
 ## Implementation Plans — Quality Upgrades
 
-### Upgrade B1: Visual Crop Tool
-Add interactive drag-to-select crop rectangle overlay on page preview. Convert pixel coordinates to PDF points and send to existing crop API.
+### Upgrade B1: Visual Crop Tool [IMPLEMENTED - PASS]
+Interactive drag-to-select crop rectangle overlay on page preview with 8 resize handles, dimmed backdrop, rule-of-thirds grid, aspect ratio locks, and auto-detect content bbox.
 
-### Upgrade B3: Compression Results Visualization
-Add animated size comparison bars showing original vs compressed file size with percentage savings badge.
+### Upgrade B3: Compression Results Visualization [IMPLEMENTED - PASS]
+Interactive visual comparison modal with before/after byte metrics, percentage savings indicator, and direct download.
 
-### Upgrade B4: Merge PDF Reorder UI
-Build draggable file list with thumbnails. Users can reorder files before submitting merge request.
+### Upgrade B4: Merge PDF Reorder UI [IMPLEMENTED - PASS]
+Interactive draggable file list with first-page thumbnails, incremental uploads, per-file rotation, and direct merge into studio.
 
-### Upgrade B5: Split PDF Visual Page Picker
-Add page thumbnail grid with checkboxes. Users click to select pages instead of typing ranges.
+### Upgrade B5: Split PDF Visual Page Picker [IMPLEMENTED - PASS]
+Page thumbnail grid with checkboxes, select-all, range inputs, and burst-to-ZIP extraction.
 
-### Upgrade B8: Mobile Responsiveness
+### Upgrade B8: Mobile Responsiveness [IMPLEMENTED - PASS]
 - Touch-friendly 44px minimum tap targets
 - Collapsible sidebar as slide-in drawer
+- Portrait and landscape viewport optimization
 - Pinch-to-zoom gesture support
 - Bottom action bar for thumb-accessible controls
-- Proper media queries for tablet (768px) and mobile (480px)
+- Dedicated media queries for tablet (768px) and mobile (480px)
+
+---
+
+## Category Q — Architectural & UX Quality Beyond Smallpdf
+
+> **Strategic Objective:** Achieving functional parity with Smallpdf closes the utility gap, but utility alone does not create a delightful, sticky product. Smallpdf suffers from noticeable round-trip latency, rigid single-page slide-deck navigation, absence of alignment guides, mouse-only ergonomics, and typography mismatch during text editing. By implementing spatial precision, continuous document flow, typography harmonization, and tactile power-user shortcuts inspired by Figma and Canva, PDF Studio transcends traditional online utilities to become an enterprise-grade document creation studio.
+
+---
+
+### Plan Q1: Figma-Grade Spatial Precision (Smart Magnetic Alignment Guides & Snapping)
+
+**Difficulty:** Medium  
+**Estimated Effort:** 3-4 days  
+**Target Areas:** `static/js/app.js`, `static/css/style.css`
+
+#### Problem Analysis
+Smallpdf requires users to position text, images, and shapes completely by eye. Aligning a heading to page center, lining up callout boxes, or ensuring equal margins across multiple annotations is frustrating, imprecise, and yields unprofessional documents.
+
+#### Architectural Specification
+1. **Dynamic SVG/Canvas Guide Layer:**
+   - Dedicated non-blocking guide layer rendered above the PDF canvas during drag, move, and resize operations (`#smartGuideOverlay`).
+   - High-contrast guide lines (magenta `#ec4899` and cyan `#06b6d4`) with subtle pulse animations and distance badge readouts (`XX pt`).
+2. **Snapping Thresholds & Magnetism:**
+   - Snap distance: `5px` screen distance with tactile magnetic stickiness. Holding `Alt` temporarily suppresses all snapping for freehand micro-positioning.
+3. **Snapping Invariants:**
+   - **Page Geometry:** Page horizontal center, page vertical center, standard printable margins (0.5" / 36pt, 0.75" / 54pt, 1.0" / 72pt).
+   - **Object-to-Object Alignment:** Aligns bounding boxes of the dragged element against all other text blocks, image overlays, and shape annotations on the active page:
+     - Edge alignments: Left-to-Left, Right-to-Right, Top-to-Top, Bottom-to-Bottom.
+     - Center alignments: Horizontal center-to-center, Vertical center-to-center.
+   - **Equidistant Spacing Distribution:** When three or more elements share an axis, displays equidistant tick markers showing identical spacing intervals.
+
+---
+
+### Plan Q2: Continuous Multi-Page Virtualized Canvas Viewport
+
+**Difficulty:** High  
+**Estimated Effort:** 5-7 days  
+**Target Areas:** `static/js/app.js`, `static/css/style.css`, `templates/index.html`
+
+#### Problem Analysis
+The current editor renders one page at a time with `< Prev` / `Next >` navigation buttons. This creates a disjointed "slideshow" feel rather than a continuous reading and editing experience matching Adobe Acrobat Web or Google Docs.
+
+#### Architectural Specification
+1. **Vertical Document Flow:**
+   - Render pages sequentially in a continuous vertical stack separated by configurable gap (`18px`) and subtle elevation dropshadows.
+2. **DOM Virtualization Engine:**
+   - To prevent memory bloat on 100+ page PDFs, virtualize the canvas stack: only keep visible pages plus a 1-page prefetch buffer above and below mounted in the DOM. Unmounted pages are represented by lightweight placeholder bounding boxes matching their native aspect ratios.
+3. **Cursor-Anchored Zoom & Pan Hand Tool:**
+   - `Ctrl + Mouse Wheel` zooming centered on the mouse pointer coordinates rather than page origin.
+   - Hold `Spacebar` + drag (or activate `H` hand tool) to pan smoothly in any direction across the entire document layout.
+4. **Active Page Auto-Detection:**
+   - IntersectionObserver monitors viewport center to update the active page counter, thumbnail highlight, and status bar seamlessly without manual paging clicks.
+5. **Dynamic Retina / High-DPI Scaling:**
+   - Scale PyMuPDF rendering pixmaps by `window.devicePixelRatio` (1.5x - 2.5x) so high-resolution screens and zoom levels above 125% remain razor-sharp without pixelation.
+
+---
+
+### Plan Q3: Power-User Hotkey Suite & 1pt/10pt Precision Nudge Engine
+
+**Difficulty:** Low-Medium  
+**Estimated Effort:** 1.5-2 days  
+**Target Areas:** `static/js/app.js`, `templates/index.html`
+
+#### Problem Analysis
+Power users and professionals find purely mouse-driven document manipulation slow and fatiguing. Smallpdf offers almost zero keyboard shortcuts.
+
+#### Architectural Specification
+1. **Arrow Key Nudge Precision Engine:**
+   - When any transform box (text, shape, image) is selected:
+     - `Arrow Keys` (Left/Right/Up/Down): Nudge element position by exactly `1 pt` (in PDF coordinate space).
+     - `Shift + Arrow Keys`: Nudge position by exactly `10 pt`.
+     - Live coordinate pill and sidebar inputs update instantaneously during nudging.
+2. **Document & Canvas Global Hotkeys:**
+   - `V`: Switch to Selection / Pointer Tool.
+   - `H`: Switch to Hand / Pan Tool.
+   - `T`: Activate Click-to-Type Text placement.
+   - `R`: Activate Rectangle shape draw mode.
+   - `O`: Activate Circle / Ellipse shape draw mode.
+   - `L`: Activate Line shape draw mode.
+   - `Delete` / `Backspace`: Delete active selection (with confirmation modal for permanent elements).
+   - `Ctrl + D` / `Cmd + D`: Duplicate active element with an automatic +15pt offset.
+   - `Ctrl + [` / `Ctrl + ]`: Send Backward / Bring Forward in layer stack.
+   - `Ctrl + Shift + [` / `Ctrl + Shift + ]`: Send to Back / Bring to Front.
+   - `Ctrl + S`: Quick download / save.
+   - `?`: Toggle sleek keyboard shortcuts cheatsheet modal.
+
+---
+
+### Plan Q4: Advanced Typography & Font Inpainting Harmonization
+
+**Difficulty:** Medium-High  
+**Estimated Effort:** 3-4 days  
+**Target Areas:** `app/services/pdf_engine.py`, `static/js/app.js`
+
+#### Problem Analysis
+When editing existing text in online PDF editors, replacement text often looks visibly "fake" or "pasted in" because system fallbacks fail to match the original document's exact typeface, letter-spacing, or line metrics.
+
+#### Architectural Specification
+1. **Deep Font Metadata Extraction:**
+   - Extend `PDFEngine.get_text_blocks()` to extract:
+     - PostScript font name, font family, weight, style (bold/italic/oblique).
+     - Exact font metrics: font ascender, descender, cap-height, line-height.
+2. **Smart Web-Font & System Fallback Resolver:**
+   - Client-side font mapper that pairs extracted PostScript font names with closest matching Google Fonts (e.g., Roboto, Inter, Merriweather, Playfair, JetBrains Mono, Open Sans) or standard PDF base-14 metrics.
+   - Dynamically load matched Google Fonts on-demand during inline text editing.
+3. **Kerning & Letter-Spacing Auto-Tuning:**
+   - Calculate original bounding box character density (`text_length / bbox_width`) and automatically apply compensating CSS `letter-spacing` so modified text fits the exact typographic rhythm of the surrounding original paragraph.
+4. **Auto-Expanding WYSIWYG Editor:**
+   - WYSIWYG text transform boxes auto-expand vertically as the user types, eliminating awkward manual container resizing.
+
+---
+
+### Plan Q5: Zero-Latency Optimistic UI & Visual Undo/Redo Timeline
+
+**Difficulty:** Medium  
+**Estimated Effort:** 2-3 days  
+**Target Areas:** `static/js/app.js`, `static/css/style.css`
+
+#### Problem Analysis
+Smallpdf forces modal loading spinners for trivial changes, breaking editing momentum. Furthermore, standard blind `Ctrl + Z` undo leaves users guessing what was reverted.
+
+#### Architectural Specification
+1. **Optimistic Mutation Pipeline:**
+   - Apply DOM updates immediately upon user action (0ms perceived latency).
+   - Dispatch background mutation request to the FastAPI backend.
+   - If the request succeeds, silently update document versioning and state.
+   - If the request fails, show a non-intrusive toast alert and automatically rollback the DOM state.
+2. **Visual Undo History Drawer:**
+   - A dedicated slide-out drawer accessible from the top toolbar showing an interactive timeline of all mutations in the current session (e.g., *"Edited Heading text"*, *"Moved Rectangle shape"*, *"Rotated Page 2 (90 deg CW)"*, *"Watermark Applied"*).
+   - Each timeline entry displays a timestamp, action icon, and target page.
+   - Users can click any past state to instantaneously time-travel / rollback to that specific revision.
+3. **Multi-Selection & Batch Transform:**
+   - Support `Shift + Click` or rubber-band canvas marquee selection to select multiple annotations/shapes simultaneously, enabling grouped moves, mass alignment, or bulk deletion.
+
+---
+
+### Plan Q6: Always-Available Left Page Rail & Live Drag Reordering
+
+**Difficulty:** Medium  
+**Estimated Effort:** 2-3 days  
+**Target Areas:** `static/js/app.js`, `templates/index.html`, `static/css/style.css`
+
+#### Problem Analysis
+In Smallpdf and current editors, organizing, rotating, or rearranging pages requires leaving the editor workspace and entering a separate "Organize Pages" mode.
+
+#### Architectural Specification
+1. **Persistent Collapsible Left Page Rail:**
+   - A dedicated vertical thumbnail strip on the left edge of the viewer that remains accessible during standard Edit, Annotate, Forms, and Shapes modes.
+   - Toggleable via button or hotkey (`[`).
+2. **In-Workspace Page Operations:**
+   - Click any thumbnail to smoothly scroll the main canvas directly to that page.
+   - Drag-and-drop page thumbnails directly inside the rail to reorder pages on the fly without mode switching.
+   - Hover quick-action buttons on each thumbnail:
+     - Rotate 90 deg clockwise.
+     - Duplicate page.
+     - Delete page (with confirmation).
+3. **Real-Time Thumbnail Invalidation:**
+   - When shapes, text, or annotations are committed on the canvas, the corresponding thumbnail in the rail updates automatically without full document reloads.
+
+---
+
+### Plan Q7: Pre-Flight Export Inspection & Metadata Sanitizer
+
+**Difficulty:** Low-Medium  
+**Estimated Effort:** 1.5-2 days  
+**Target Areas:** `app/services/pdf_engine.py`, `static/js/app.js`, `templates/index.html`
+
+#### Problem Analysis
+Commercial PDF tools provide no pre-download transparency regarding file size changes, privacy leakage, or PDF standard compliance.
+
+#### Architectural Specification
+1. **Pre-Flight Export Modal:**
+   - Replaces the abrupt browser download with a sleek, informative export sheet:
+     - **File Size Comparison:** Clear visual comparison of original file size vs. exported file size, with percentage reduction or increase.
+     - **PDF Compliance Badge:** Validates and displays document compatibility (e.g., PDF 1.7, PDF/A-1b compliant, encrypted/flattened).
+2. **One-Click Metadata Sanitizer:**
+   - Checkbox options to scrub sensitive embedded metadata prior to final download:
+     - Author names, creator software, operating system tags.
+     - Modification history and PDF Producer metadata.
+     - Embedded GPS tags or camera metadata from inserted images.
+3. **Instant Export Actions:**
+   - Direct Download.
+   - "Copy PDF to Clipboard" (browser clipboard API).
+   - "Open in New Tab" for immediate printing or review.
 
 ---
 
 ## Priority Roadmap
 
-### Phase 1 — Quick Wins (Week 1)
-| Priority | Feature | Effort | Impact |
-|----------|---------|--------|--------|
-| P0 | A8: Unlock PDF | 0.5 day | High — Implemented |
-| P0 | B1: Visual Crop Tool | 1 day | High — Implemented |
-| P0 | B3: Compression Visualization | 0.5 day | Medium — polish |
-| P1 | A10: eSign Workflow | 2 days | High — signature creation UI |
-| P1 | B4: Merge Reorder UI | 1 day | Medium — UX improvement |
-| P1 | B5: Split Page Picker | 1 day | Medium — Implemented (PASS) |
+### Phase 1 — Quick Wins & Spatial Precision (Week 1)
+| Priority | Feature / Upgrade | Effort | Impact | Status |
+|----------|-------------------|--------|--------|--------|
+| P0 | A8: Unlock PDF | 0.5 day | High | Implemented (PASS) |
+| P0 | B1: Visual Crop Tool | 1 day | High | Implemented (PASS) |
+| P0 | B3: Compression Visualization | 0.5 day | Medium | Implemented (PASS) |
+| P0 | B4: Merge Reorder UI | 1 day | Medium | Implemented (PASS) |
+| P0 | B5: Split Page Picker | 1 day | Medium | Implemented (PASS) |
+| P0 | B8: Mobile Responsiveness | 3 days | High | Implemented (PASS) |
+| P1 | **Q1: Smart Magnetic Alignment Guides** | 3 days | Very High | Planned |
+| P1 | **Q3: Hotkey Suite & 1pt/10pt Nudge Engine** | 1.5 days | High | Planned |
+| P1 | A10: eSign Workflow (Draw/Type) | 2 days | High | Planned |
 
-### Phase 2 — Core Conversions (Week 2-3)
-| Priority | Feature | Effort | Impact |
-|----------|---------|--------|--------|
-| P1 | A1: PDF to Word | 3 days | Very High — most requested feature |
-| P1 | A2: PDF to Excel | 2 days | High — extend existing table extraction |
-| P1 | A3: PDF to PowerPoint | 3 days | Medium — image-based slides |
-| P2 | A4-A6: Office to PDF | 3 days | High — requires LibreOffice |
+### Phase 2 — Core Conversions & Workspace Flow (Week 2-3)
+| Priority | Feature / Upgrade | Effort | Impact | Status |
+|----------|-------------------|--------|--------|--------|
+| P0 | A1: PDF to Word | 3 days | Very High | Implemented (PASS) |
+| P0 | A2: PDF to Excel | 2 days | High | Implemented (PASS) |
+| P0 | A3: PDF to PowerPoint | 3 days | Medium | Implemented (PASS) |
+| P0 | A4-A6: Office to PDF | 3 days | High | Implemented (PASS) |
+| P0 | A7: PDF/A Conversion | 2 days | Medium | Implemented (PASS) |
+| P1 | **Q6: Always-Available Left Page Rail** | 2.5 days | High | Planned |
+| P1 | **Q7: Pre-Flight Export Inspection & Metadata Sanitizer** | 1.5 days | High | Planned |
 
-### Phase 3 — Advanced (Week 4-5)
-| Priority | Feature | Effort | Impact |
-|----------|---------|--------|--------|
-| P2 | A9: OCR | 3 days | High — requires Tesseract |
-| P2 | A7: PDF/A Conversion | 2 days | Medium — requires Ghostscript |
-| P2 | A11: Batch Processing | 2 days | Medium — multi-file pipeline |
-| P2 | B8: Mobile Responsiveness | 3 days | High — expands user base |
+### Phase 3 — Viewport & Typography Excellence (Week 4-5)
+| Priority | Feature / Upgrade | Effort | Impact | Status |
+|----------|-------------------|--------|--------|--------|
+| P1 | **Q2: Continuous Multi-Page Virtualized Canvas** | 5 days | Very High | Planned |
+| P1 | **Q4: Advanced Typography & Font Inpainting** | 3.5 days | Very High | Planned |
+| P2 | A9: OCR (Searchable PDF) | 3 days | High | Planned |
+| P2 | A11: Batch Processing | 2 days | Medium | Planned |
 
-### Phase 4 — Ambitious (Week 6+)
-| Priority | Feature | Effort | Impact |
-|----------|---------|--------|--------|
-| P3 | A12: AI Features | 5 days | High but requires API key |
-| P3 | B6-B7: Cloud Storage | 3 days | Medium — breaks offline promise |
-| P3 | B9: Tool Landing Page | 2 days | Medium — UX/marketing |
+### Phase 4 — Enterprise & Ambitious (Week 6+)
+| Priority | Feature / Upgrade | Effort | Impact | Status |
+|----------|-------------------|--------|--------|--------|
+| P2 | **Q5: Optimistic UI & Visual Undo History Timeline** | 3 days | High | Planned |
+| P3 | A12: AI Chat & Summarization | 5 days | High | Planned |
+| P3 | B6-B7: Cloud Storage Integration | 3 days | Medium | Planned |
+| P3 | B9: Tool Landing Page Directory | 2 days | Medium | Implemented (PASS) |
 
 ---
 
@@ -579,7 +773,7 @@ Add page thumbnail grid with checkboxes. Users click to select pages instead of 
 
 ### New Python Dependencies
 ```
-# Core conversions (Phase 2)
+# Core conversions (Phase 2 - Implemented)
 pdf2docx>=0.5.8              # PDF to Word
 python-pptx>=0.6.23          # PDF to PowerPoint
 
@@ -594,7 +788,7 @@ httpx>=0.27.0                # Ollama local LLM
 
 ### System Dependencies
 ```
-# Phase 2 (Office to PDF)
+# Phase 2 (Office to PDF - Implemented)
 LibreOffice (headless mode)
 
 # Phase 3
@@ -604,7 +798,7 @@ Ghostscript
 
 ### Existing Dependencies (Already Satisfied)
 ```
-PyMuPDF (fitz)               # Core engine
+PyMuPDF (fitz)               # Core engine & font metadata
 Pillow                       # Image processing
 openpyxl                     # Excel export
 FastAPI + Uvicorn            # Web framework
@@ -623,12 +817,15 @@ FastAPI + Uvicorn            # Web framework
 | Table Extraction | ML-powered detection + CSV/Excel export | Not offered | PDF Studio |
 | Document Comparison | Side-by-side visual diff | Not offered on free tier | PDF Studio |
 | Privacy | 100% offline, zero cloud | Cloud-based, 1hr file retention | PDF Studio |
-| Format Conversions | PDF to/from Images only | PDF to/from Word/Excel/PPT/Images | SmallPDF |
+| Format Conversions | Full 2-way Word, Excel, PPT, PDF/A, Images | PDF to/from Word/Excel/PPT/Images | PDF Studio |
+| Mobile UX | Fully responsive + portrait drawer | Responsive + mobile app | Tie |
+| Spatial Precision | Planned Smart Magnetic Guides + 1pt Nudge | None (manual eye alignment) | PDF Studio (Planned) |
+| Viewport Flow | Continuous scroll (Planned) vs Single-page | Continuous scroll | SmallPDF (Current) |
+| Typography Inpainting | Font metadata & metric harmonizer (Planned) | Standard Arial/fallback substitution | PDF Studio (Planned) |
 | eSign Workflow | Image insert only | Draw/type/upload + send for signing | SmallPDF |
 | OCR | Not available | Pro feature | SmallPDF |
 | AI Features | Not available | Chat, summarize, translate | SmallPDF |
-| Mobile UX | Desktop-focused | Fully responsive + mobile app | SmallPDF |
 | Batch Processing | Not available | Pro feature | SmallPDF |
 | Cloud Integration | Not available | Google Drive, Dropbox, OneDrive | SmallPDF |
 
-**Verdict:** PDF Studio is already stronger in core editing, security, and privacy. The gaps are primarily in format conversions, eSign workflow, OCR, and consumer UX polish. Implementing the Phase 1-2 items would close approximately 70% of the competitive gap.
+**Verdict:** PDF Studio is already dominant in editing depth, security audit, true redaction, conversion flexibility, and 100% local privacy. By executing on the **Category Q** quality improvements (Smart Guides, Hotkey Nudging, Continuous Canvas, and Typography Inpainting), PDF Studio will surpass SmallPDF not just in tool breadth, but in **precision, tactile feel, and professional document quality**.

@@ -48,7 +48,8 @@ const state = {
   docVersion: 1,
   pendingTargetTab: null,
   pendingSubAction: null,
-  shapesSubMode: "shapes"
+  shapesSubMode: "shapes",
+  smartSnappingEnabled: true
 };
 
 let activeTransformBox = null;
@@ -326,7 +327,7 @@ function setupTabs() {
           cancelTransformBox();
         }
       }
-      if (targetId !== "tab-shapes") {
+      if (targetId !== "tab-shapes" && targetId !== "tab-edit") {
         if (activeTransformBox && activeTransformBox.classList.contains("mode-shape")) {
           cancelTransformBox();
         }
@@ -343,7 +344,7 @@ function setupTabs() {
       if (targetId !== "tab-shapes") {
         cancelMeasurement();
       } else {
-        interactiveOverlay.style.cursor = "crosshair";
+        interactiveOverlay.style.cursor = activeTransformBox ? "default" : "crosshair";
         if (typeof window.setShapesSubMode === "function") {
           window.setShapesSubMode(state.shapesSubMode || "shapes");
         }
@@ -1029,6 +1030,8 @@ function renderAnnotationOverlays(pageNumber) {
       wrapper.classList.add("shape-annotation-wrapper");
       wrapper.dataset.annotIndex = String(annot.index);
       wrapper.style.cursor = "pointer";
+      const isShapeInteractive = state.activeTab === "tab-shapes" || state.activeTab === "tab-edit" || (state.inspectMode && state.activeTab !== "tab-annotate" && state.activeTab !== "tab-redact");
+      wrapper.style.pointerEvents = isShapeInteractive ? "auto" : "none";
       wrapper.title = `${annot.type} Shape: Click to edit shape`;
       wrapper.addEventListener("click", (e) => {
         if (state.activeTab === "tab-annotate" || state.activeTab === "tab-redact") return;
@@ -1426,6 +1429,18 @@ function setupViewerControls() {
 
   btnFitWidth.addEventListener("click", fitToWidth);
 
+  const btnToggleSnapping = document.getElementById("btnToggleSnapping");
+  if (btnToggleSnapping) {
+    btnToggleSnapping.addEventListener("click", () => {
+      state.smartSnappingEnabled = !state.smartSnappingEnabled;
+      btnToggleSnapping.classList.toggle("active", state.smartSnappingEnabled);
+      showToast(state.smartSnappingEnabled ? "Smart alignment guides: ON" : "Smart alignment guides: OFF", "info");
+      if (!state.smartSnappingEnabled && typeof clearSmartGuides === "function") {
+        clearSmartGuides();
+      }
+    });
+  }
+
   // Ctrl + MouseWheel zoom on canvas
   const canvasViewport = document.getElementById("canvasViewport");
   if (canvasViewport) {
@@ -1752,6 +1767,473 @@ function renderSearchHighlights() {
 }
 
 // ==========================================================================
+// Smart Magnetic Alignment Guides & Precision Snapping (Plan Q1)
+// ==========================================================================
+
+function getCandidateSnapTargets(excludeElement) {
+  const overlay = document.getElementById("interactiveOverlay");
+  if (!overlay) return [];
+  const targets = [];
+
+  const candidates = overlay.querySelectorAll(
+    ".text-block-highlight, .canvas-image-overlay, .shape-annotation-wrapper, .form-overlay-wrapper, .live-transform-box, .annotation-overlay-wrapper"
+  );
+
+  candidates.forEach(el => {
+    if (el === excludeElement || (excludeElement && excludeElement.contains(el))) return;
+    if (el.classList.contains("element-underlying-mask") || el.classList.contains("smart-guide-overlay")) return;
+    if (el.style.display === "none" || el.style.visibility === "hidden") return;
+
+    const l = parseFloat(el.style.left);
+    const t = parseFloat(el.style.top);
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+
+    if (isNaN(l) || isNaN(t) || w < 8 || h < 8) return;
+
+    targets.push({
+      element: el,
+      left: l,
+      right: l + w,
+      center: l + w / 2,
+      top: t,
+      bottom: t + h,
+      middle: t + h / 2,
+      width: w,
+      height: h
+    });
+  });
+
+  return targets;
+}
+
+function calculateSmartSnapping(options = {}) {
+  const {
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    isResize = false,
+    resizeDir = "",
+    cachedTargets = null,
+    excludeElement = null,
+    altKey = false
+  } = options;
+
+  if (altKey || state.smartSnappingEnabled === false) {
+    return {
+      snappedX: x,
+      snappedY: y,
+      snappedWidth: width,
+      snappedHeight: height,
+      guides: []
+    };
+  }
+
+  const overlay = document.getElementById("interactiveOverlay");
+  if (!overlay) {
+    return { snappedX: x, snappedY: y, snappedWidth: width, snappedHeight: height, guides: [] };
+  }
+
+  const overlayRect = overlay.getBoundingClientRect();
+  const W = overlayRect.width || 595;
+  const H = overlayRect.height || 842;
+  const scaleX = (state.pageWidthPt || 595) / W;
+  const scaleY = (state.pageHeightPt || 842) / H;
+
+  const snapThresholdPx = 6.0;
+  let snappedX = x;
+  let snappedY = y;
+  let snappedW = width;
+  let snappedH = height;
+  const guides = [];
+
+  const targets = cachedTargets || getCandidateSnapTargets(excludeElement);
+
+  // 1. Horizontal (X-Axis) Snapping
+  const allowsXSnap = !isResize || resizeDir.includes("w") || resizeDir.includes("e");
+  if (allowsXSnap) {
+    let bestSnapX = null;
+    let minDiffX = snapThresholdPx;
+
+    const checkSnapX = (currentCandidateX, targetGuideX, offsetCorrection, type, label, extra = null) => {
+      const diff = Math.abs(currentCandidateX - targetGuideX);
+      if (diff < minDiffX) {
+        minDiffX = diff;
+        bestSnapX = {
+          snappedVal: targetGuideX + offsetCorrection,
+          guideX: targetGuideX,
+          type: type,
+          label: label,
+          extra: extra
+        };
+      }
+    };
+
+    if (!isResize) {
+      // Page Center (X)
+      const pageCenterX = W / 2;
+      checkSnapX(x + width / 2, pageCenterX, -width / 2, "page", "Page Center");
+      checkSnapX(x, pageCenterX, 0, "page", "Page Center");
+      checkSnapX(x + width, pageCenterX, -width, "page", "Page Center");
+
+      // Standard Printable Margins (0.5" = 36pt, 0.75" = 54pt)
+      const margin36PxX = 36 / scaleX;
+      checkSnapX(x, margin36PxX, 0, "page", "Left Margin (0.5\")");
+      checkSnapX(x + width, W - margin36PxX, -width, "page", "Right Margin (0.5\")");
+
+      const margin54PxX = 54 / scaleX;
+      checkSnapX(x, margin54PxX, 0, "page", "Left Margin (0.75\")");
+      checkSnapX(x + width, W - margin54PxX, -width, "page", "Right Margin (0.75\")");
+
+      // Object-to-Object Snapping (X)
+      targets.forEach(tgt => {
+        checkSnapX(x, tgt.left, 0, "object", "Align Left");
+        checkSnapX(x + width / 2, tgt.center, -width / 2, "object", "Align Center");
+        checkSnapX(x + width, tgt.right, -width, "object", "Align Right");
+        checkSnapX(x, tgt.right, 0, "object", "Snap to Edge");
+        checkSnapX(x + width, tgt.left, -width, "object", "Snap to Edge");
+      });
+
+      // Equidistant Spacing Distribution along X
+      for (let i = 0; i < targets.length; i++) {
+        for (let j = 0; j < targets.length; j++) {
+          if (i === j) continue;
+          const leftTgt = targets[i];
+          const rightTgt = targets[j];
+          if (leftTgt.right < rightTgt.left) {
+            const availableGap = (rightTgt.left - leftTgt.right) - width;
+            if (availableGap > 8) {
+              const idealX = leftTgt.right + availableGap / 2;
+              const gapPt = Math.round((availableGap / 2) * scaleX);
+              checkSnapX(x, idealX, 0, "spacing", `Equal Spacing (${gapPt}pt)`, {
+                spacingType: "x",
+                p1: leftTgt.right,
+                p2: rightTgt.left,
+                gapPt: gapPt
+              });
+            }
+          }
+        }
+      }
+    } else {
+      // Resizing along X
+      if (resizeDir.includes("w")) {
+        const pageCenterX = W / 2;
+        checkSnapX(x, pageCenterX, 0, "page", "Page Center");
+        const margin36PxX = 36 / scaleX;
+        checkSnapX(x, margin36PxX, 0, "page", "Left Margin (0.5\")");
+
+        targets.forEach(tgt => {
+          checkSnapX(x, tgt.left, 0, "object", "Align Left");
+          checkSnapX(x, tgt.right, 0, "object", "Snap to Edge");
+          checkSnapX(x, tgt.center, 0, "object", "Align Center");
+        });
+      } else if (resizeDir.includes("e")) {
+        const pageCenterX = W / 2;
+        checkSnapX(x + width, pageCenterX, -x, "page", "Page Center");
+        const margin36PxX = 36 / scaleX;
+        checkSnapX(x + width, W - margin36PxX, -x, "page", "Right Margin (0.5\")");
+
+        targets.forEach(tgt => {
+          checkSnapX(x + width, tgt.right, -x, "object", "Align Right");
+          checkSnapX(x + width, tgt.left, -x, "object", "Snap to Edge");
+          checkSnapX(x + width, tgt.center, -x, "object", "Align Center");
+        });
+      }
+    }
+
+    if (bestSnapX) {
+      if (!isResize) {
+        snappedX = Math.round(bestSnapX.snappedVal);
+      } else if (resizeDir.includes("w")) {
+        const newLeft = Math.round(bestSnapX.snappedVal);
+        const maxLeft = (x + width) - 24;
+        snappedX = Math.min(newLeft, maxLeft);
+        snappedW = (x + width) - snappedX;
+      } else if (resizeDir.includes("e")) {
+        const newRight = Math.round(bestSnapX.guideX);
+        snappedW = Math.max(24, newRight - x);
+      }
+
+      guides.push({
+        orientation: "v",
+        coord: Math.round(bestSnapX.guideX),
+        type: bestSnapX.type,
+        label: bestSnapX.label,
+        extra: bestSnapX.extra
+      });
+    }
+  }
+
+  // 2. Vertical (Y-Axis) Snapping
+  const allowsYSnap = !isResize || resizeDir.includes("n") || resizeDir.includes("s");
+  if (allowsYSnap) {
+    let bestSnapY = null;
+    let minDiffY = snapThresholdPx;
+
+    const checkSnapY = (currentCandidateY, targetGuideY, offsetCorrection, type, label, extra = null) => {
+      const diff = Math.abs(currentCandidateY - targetGuideY);
+      if (diff < minDiffY) {
+        minDiffY = diff;
+        bestSnapY = {
+          snappedVal: targetGuideY + offsetCorrection,
+          guideY: targetGuideY,
+          type: type,
+          label: label,
+          extra: extra
+        };
+      }
+    };
+
+    if (!isResize) {
+      // Page Middle (Y)
+      const pageCenterY = H / 2;
+      checkSnapY(y + height / 2, pageCenterY, -height / 2, "page", "Page Middle");
+      checkSnapY(y, pageCenterY, 0, "page", "Page Middle");
+      checkSnapY(y + height, pageCenterY, -height, "page", "Page Middle");
+
+      const margin36PxY = 36 / scaleY;
+      checkSnapY(y, margin36PxY, 0, "page", "Top Margin (0.5\")");
+      checkSnapY(y + height, H - margin36PxY, -height, "page", "Bottom Margin (0.5\")");
+
+      const margin54PxY = 54 / scaleY;
+      checkSnapY(y, margin54PxY, 0, "page", "Top Margin (0.75\")");
+      checkSnapY(y + height, H - margin54PxY, -height, "page", "Bottom Margin (0.75\")");
+
+      // Object-to-Object Snapping (Y)
+      targets.forEach(tgt => {
+        checkSnapY(y, tgt.top, 0, "object", "Align Top");
+        checkSnapY(y + height / 2, tgt.middle, -height / 2, "object", "Align Middle");
+        checkSnapY(y + height, tgt.bottom, -height, "object", "Align Bottom");
+        checkSnapY(y, tgt.bottom, 0, "object", "Snap to Edge");
+        checkSnapY(y + height, tgt.top, -height, "object", "Snap to Edge");
+      });
+
+      // Equidistant Spacing Distribution along Y
+      for (let i = 0; i < targets.length; i++) {
+        for (let j = 0; j < targets.length; j++) {
+          if (i === j) continue;
+          const topTgt = targets[i];
+          const btmTgt = targets[j];
+          if (topTgt.bottom < btmTgt.top) {
+            const availableGap = (btmTgt.top - topTgt.bottom) - height;
+            if (availableGap > 8) {
+              const idealY = topTgt.bottom + availableGap / 2;
+              const gapPt = Math.round((availableGap / 2) * scaleY);
+              checkSnapY(y, idealY, 0, "spacing", `Equal Spacing (${gapPt}pt)`, {
+                spacingType: "y",
+                p1: topTgt.bottom,
+                p2: btmTgt.top,
+                gapPt: gapPt
+              });
+            }
+          }
+        }
+      }
+    } else {
+      // Resizing along Y
+      if (resizeDir.includes("n")) {
+        const pageCenterY = H / 2;
+        checkSnapY(y, pageCenterY, 0, "page", "Page Middle");
+        const margin36PxY = 36 / scaleY;
+        checkSnapY(y, margin36PxY, 0, "page", "Top Margin (0.5\")");
+
+        targets.forEach(tgt => {
+          checkSnapY(y, tgt.top, 0, "object", "Align Top");
+          checkSnapY(y, tgt.bottom, 0, "object", "Snap to Edge");
+          checkSnapY(y, tgt.middle, 0, "object", "Align Middle");
+        });
+      } else if (resizeDir.includes("s")) {
+        const pageCenterY = H / 2;
+        checkSnapY(y + height, pageCenterY, -y, "page", "Page Middle");
+        const margin36PxY = 36 / scaleY;
+        checkSnapY(y + height, H - margin36PxY, -y, "page", "Bottom Margin (0.5\")");
+
+        targets.forEach(tgt => {
+          checkSnapY(y + height, tgt.bottom, -y, "object", "Align Bottom");
+          checkSnapY(y + height, tgt.top, -y, "object", "Snap to Edge");
+          checkSnapY(y + height, tgt.middle, -y, "object", "Align Middle");
+        });
+      }
+    }
+
+    if (bestSnapY) {
+      if (!isResize) {
+        snappedY = Math.round(bestSnapY.snappedVal);
+      } else if (resizeDir.includes("n")) {
+        const newTop = Math.round(bestSnapY.snappedVal);
+        const maxTop = (y + height) - 18;
+        snappedY = Math.min(newTop, maxTop);
+        snappedH = (y + height) - snappedY;
+      } else if (resizeDir.includes("s")) {
+        const newBottom = Math.round(bestSnapY.guideY);
+        snappedH = Math.max(18, newBottom - y);
+      }
+
+      guides.push({
+        orientation: "h",
+        coord: Math.round(bestSnapY.guideY),
+        type: bestSnapY.type,
+        label: bestSnapY.label,
+        extra: bestSnapY.extra
+      });
+    }
+  }
+
+  return {
+    snappedX,
+    snappedY,
+    snappedWidth: snappedW,
+    snappedHeight: snappedH,
+    guides
+  };
+}
+
+function getSmartGuideOverlay() {
+  let overlay = document.getElementById("smartGuideOverlay");
+  if (!overlay) {
+    const wrapper = document.getElementById("pageCanvasWrapper");
+    if (wrapper) {
+      overlay = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      overlay.id = "smartGuideOverlay";
+      overlay.className = "smart-guide-overlay";
+      overlay.setAttribute("aria-hidden", "true");
+      wrapper.appendChild(overlay);
+    }
+  }
+  return overlay;
+}
+
+function clearSmartGuides() {
+  const overlay = document.getElementById("smartGuideOverlay");
+  if (overlay) {
+    while (overlay.firstChild) {
+      overlay.removeChild(overlay.firstChild);
+    }
+  }
+}
+
+function renderSmartGuides(guides = [], currentBox = null) {
+  const overlay = getSmartGuideOverlay();
+  if (!overlay) return;
+
+  const canvasOverlay = document.getElementById("interactiveOverlay");
+  const overlayRect = canvasOverlay ? canvasOverlay.getBoundingClientRect() : { width: 595, height: 842 };
+  const W = Math.round(overlayRect.width) || 595;
+  const H = Math.round(overlayRect.height) || 842;
+
+  overlay.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  overlay.style.width = `${W}px`;
+  overlay.style.height = `${H}px`;
+
+  while (overlay.firstChild) {
+    overlay.removeChild(overlay.firstChild);
+  }
+
+  if (!guides || !guides.length) return;
+
+  const fragment = document.createDocumentFragment();
+
+  guides.forEach(guide => {
+    // 1. Guide Line
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("class", `smart-guide-line guide-${guide.type}`);
+
+    let badgeX = 0;
+    let badgeY = 0;
+
+    if (guide.orientation === "v") {
+      line.setAttribute("x1", guide.coord);
+      line.setAttribute("y1", 0);
+      line.setAttribute("x2", guide.coord);
+      line.setAttribute("y2", H);
+
+      badgeX = Math.max(50, Math.min(guide.coord, W - 50));
+      badgeY = (currentBox && currentBox.top > 32) ? Math.max(16, currentBox.top - 14) : 22;
+    } else {
+      line.setAttribute("x1", 0);
+      line.setAttribute("y1", guide.coord);
+      line.setAttribute("x2", W);
+      line.setAttribute("y2", guide.coord);
+
+      badgeY = Math.max(14, Math.min(guide.coord, H - 14));
+      badgeX = (currentBox && currentBox.left > 65) ? Math.max(48, currentBox.left - 45) : 56;
+    }
+    fragment.appendChild(line);
+
+    // 2. Guide Badge with Label
+    const textLen = (guide.label || "").length;
+    const badgeW = Math.max(58, textLen * 6.5 + 16);
+    const badgeH = 18;
+
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("class", `smart-guide-badge badge-${guide.type}`);
+    g.setAttribute("transform", `translate(${badgeX}, ${badgeY})`);
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", -badgeW / 2);
+    rect.setAttribute("y", -badgeH / 2);
+    rect.setAttribute("width", badgeW);
+    rect.setAttribute("height", badgeH);
+    rect.setAttribute("rx", "4");
+
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.textContent = guide.label;
+    text.setAttribute("x", "0");
+    text.setAttribute("y", "0");
+
+    g.appendChild(rect);
+    g.appendChild(text);
+    fragment.appendChild(g);
+
+    // 3. Spacing Indicators if Equal Spacing
+    if (guide.type === "spacing" && guide.extra) {
+      if (guide.extra.spacingType === "x") {
+        const tick1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        tick1.setAttribute("class", "smart-guide-spacing-tick");
+        tick1.setAttribute("x1", guide.extra.p1);
+        tick1.setAttribute("y1", 0);
+        tick1.setAttribute("x2", guide.extra.p1);
+        tick1.setAttribute("y2", H);
+        fragment.appendChild(tick1);
+
+        const tick2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        tick2.setAttribute("class", "smart-guide-spacing-tick");
+        tick2.setAttribute("x1", guide.extra.p2);
+        tick2.setAttribute("y1", 0);
+        tick2.setAttribute("x2", guide.extra.p2);
+        tick2.setAttribute("y2", H);
+        fragment.appendChild(tick2);
+      } else if (guide.extra.spacingType === "y") {
+        const tick1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        tick1.setAttribute("class", "smart-guide-spacing-tick");
+        tick1.setAttribute("x1", 0);
+        tick1.setAttribute("y1", guide.extra.p1);
+        tick1.setAttribute("x2", W);
+        tick1.setAttribute("y2", guide.extra.p1);
+        fragment.appendChild(tick1);
+
+        const tick2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        tick2.setAttribute("class", "smart-guide-spacing-tick");
+        tick2.setAttribute("x1", 0);
+        tick2.setAttribute("y1", guide.extra.p2);
+        tick2.setAttribute("x2", W);
+        tick2.setAttribute("y2", guide.extra.p2);
+        fragment.appendChild(tick2);
+      }
+    }
+  });
+
+  overlay.appendChild(fragment);
+}
+
+window.calculateSmartSnapping = calculateSmartSnapping;
+window.renderSmartGuides = renderSmartGuides;
+window.clearSmartGuides = clearSmartGuides;
+window.getCandidateSnapTargets = getCandidateSnapTargets;
+
+// ==========================================================================
 // Canvas Interaction & WYSIWYG
 // ==========================================================================
 
@@ -1779,6 +2261,9 @@ function makeDraggable(elem, handle, onMoveEnd, onMove, onMoveStart) {
     const elemStartH = elem.offsetHeight;
     let hasStartedMoving = false;
 
+    // Smart Snapping Cache
+    let cachedSnapTargets = null;
+
     let pendingRaf = null;
     let lastNewX = elemStartX;
     let lastNewY = elemStartY;
@@ -1792,6 +2277,9 @@ function makeDraggable(elem, handle, onMoveEnd, onMove, onMoveStart) {
 
       if (!hasStartedMoving && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
         hasStartedMoving = true;
+        if (typeof getCandidateSnapTargets === "function") {
+          cachedSnapTargets = getCandidateSnapTargets(elem);
+        }
         if (onMoveStart) onMoveStart(elemStartX, elemStartY, elemStartW, elemStartH);
       }
 
@@ -1800,6 +2288,21 @@ function makeDraggable(elem, handle, onMoveEnd, onMove, onMoveStart) {
 
       newX = Math.max(0, Math.min(newX, overlayRect.width - elemStartW));
       newY = Math.max(0, Math.min(newY, overlayRect.height - elemStartH));
+
+      if (hasStartedMoving && typeof calculateSmartSnapping === "function") {
+        const snap = calculateSmartSnapping({
+          x: newX,
+          y: newY,
+          width: elemStartW,
+          height: elemStartH,
+          cachedTargets: cachedSnapTargets,
+          excludeElement: elem,
+          altKey: moveEvent.altKey
+        });
+        newX = snap.snappedX;
+        newY = snap.snappedY;
+        renderSmartGuides(snap.guides, { left: newX, top: newY, width: elemStartW, height: elemStartH });
+      }
 
       lastNewX = newX;
       lastNewY = newY;
@@ -1821,6 +2324,11 @@ function makeDraggable(elem, handle, onMoveEnd, onMove, onMoveStart) {
       }
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+
+      if (typeof clearSmartGuides === "function") {
+        clearSmartGuides();
+      }
+      cachedSnapTargets = null;
 
       elem.style.left = `${lastNewX}px`;
       elem.style.top = `${lastNewY}px`;
@@ -1869,6 +2377,23 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
         newW = Math.min(newW, overlayRect.width - elemStartX);
         newH = Math.min(newH, overlayRect.height - elemStartY);
 
+        if (typeof calculateSmartSnapping === "function") {
+          const snap = calculateSmartSnapping({
+            x: elemStartX,
+            y: elemStartY,
+            width: newW,
+            height: newH,
+            isResize: true,
+            resizeDir: "se",
+            cachedTargets: typeof getCandidateSnapTargets === "function" ? getCandidateSnapTargets(elem) : null,
+            excludeElement: elem,
+            altKey: moveEvent.altKey
+          });
+          newW = snap.snappedWidth;
+          newH = snap.snappedHeight;
+          renderSmartGuides(snap.guides, { left: elemStartX, top: elemStartY, width: newW, height: newH });
+        }
+
         lastW = newW;
         lastH = newH;
 
@@ -1888,6 +2413,10 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
         }
         window.removeEventListener("mousemove", onMouseMove);
         window.removeEventListener("mouseup", onMouseUp);
+
+        if (typeof clearSmartGuides === "function") {
+          clearSmartGuides();
+        }
 
         elem.style.width = `${lastW}px`;
         elem.style.height = `${lastH}px`;
@@ -1923,6 +2452,7 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
       const startT = parseFloat(elem.style.top) || 0;
       const startW = elem.offsetWidth;
       const startH = elem.offsetHeight;
+      const cachedSnapTargets = typeof getCandidateSnapTargets === "function" ? getCandidateSnapTargets(elem) : null;
 
       let pendingRaf = null;
       let lastL = startL;
@@ -1978,6 +2508,25 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
           }
         }
 
+        if (typeof calculateSmartSnapping === "function") {
+          const snap = calculateSmartSnapping({
+            x: newL,
+            y: newT,
+            width: newW,
+            height: newH,
+            isResize: true,
+            resizeDir: dir,
+            cachedTargets: cachedSnapTargets,
+            excludeElement: elem,
+            altKey: me.altKey
+          });
+          newL = snap.snappedX;
+          newT = snap.snappedY;
+          newW = snap.snappedWidth;
+          newH = snap.snappedHeight;
+          renderSmartGuides(snap.guides, { left: newL, top: newT, width: newW, height: newH });
+        }
+
         lastL = newL;
         lastT = newT;
         lastW = newW;
@@ -2002,6 +2551,10 @@ function makeResizable(elem, resizerOrOnEnd, onResize, handleDirs = ["nw", "ne",
         }
         window.removeEventListener("mousemove", onMouseMove);
         window.removeEventListener("mouseup", onMouseUp);
+
+        if (typeof clearSmartGuides === "function") {
+          clearSmartGuides();
+        }
 
         elem.style.left = `${lastL}px`;
         elem.style.top = `${lastT}px`;
@@ -2128,6 +2681,7 @@ function setupCanvasDrawing() {
     // If clicking on canvas outside transform box, deselect active transform box
     if (activeTransformBox && !e.target.closest(".live-transform-box")) {
       cancelTransformBox(false);
+      return;
     }
 
     // Guards to prevent canvas click from overriding interactive children
@@ -2445,6 +2999,16 @@ function cancelTransformBox(keepMasks = false) {
       el.classList.remove("selected");
       el.classList.remove("is-dragging");
     });
+  }
+  if (typeof clearSmartGuides === "function") {
+    clearSmartGuides();
+  }
+  if (state.activeTab === "tab-shapes") {
+    interactiveOverlay.style.cursor = "crosshair";
+  } else if (state.activeTab === "tab-add") {
+    interactiveOverlay.style.cursor = "text";
+  } else {
+    interactiveOverlay.style.cursor = "default";
   }
 }
 
@@ -3741,6 +4305,9 @@ function initLiveShapeTransformBox(options = {}) {
   cancelTransformBox();
 
   const mode = options.mode || "insert"; // "insert" | "existing"
+  if (interactiveOverlay) {
+    interactiveOverlay.style.cursor = "default";
+  }
   const overlay = document.getElementById("interactiveOverlay");
   const overlayRect = overlay.getBoundingClientRect();
   const scaleX = state.pageWidthPt / overlayRect.width;
@@ -4278,19 +4845,8 @@ function initLiveShapeTransformBox(options = {}) {
 }
 
 function selectShapeForEdit(annot, wrapper) {
-  if (state.activeTab !== "tab-shapes") {
-    const shapesTabBtn = document.querySelector('[data-tab="tab-shapes"]');
-    if (shapesTabBtn) {
-      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
-      shapesTabBtn.classList.add("active");
-      const targetPane = document.getElementById("tab-shapes");
-      if (targetPane) targetPane.classList.add("active");
-      state.activeTab = "tab-shapes";
-    }
-  }
-  if (typeof window.setShapesSubMode === "function") {
-    window.setShapesSubMode("shapes");
+  if (interactiveOverlay) {
+    interactiveOverlay.style.cursor = "default";
   }
 
   const screenRect = pageToScreenRect(annot.rect);
@@ -9245,7 +9801,7 @@ window.setShapesSubMode = function(mode, subType = null) {
     if (btnModeMeasureRuler) btnModeMeasureRuler.classList.remove("active");
     if (shapesDrawSection) shapesDrawSection.style.display = "block";
     if (shapesMeasureSection) shapesMeasureSection.style.display = "none";
-    if (state.activeTab === "tab-shapes") {
+    if (state.activeTab === "tab-shapes" && !activeTransformBox) {
       interactiveOverlay.style.cursor = "crosshair";
     }
   } else if (mode === "ruler") {
@@ -9257,7 +9813,7 @@ window.setShapesSubMode = function(mode, subType = null) {
 
     const targetType = subType || (btnMeasureArea && btnMeasureArea.classList.contains("active") ? "area" : "distance");
     activateMeasurementTool(targetType);
-    if (state.activeTab === "tab-shapes") {
+    if (state.activeTab === "tab-shapes" && !activeTransformBox) {
       interactiveOverlay.style.cursor = "crosshair";
     }
   }

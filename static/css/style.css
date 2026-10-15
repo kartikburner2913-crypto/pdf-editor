@@ -6953,3 +6953,83 @@ body.mobile-drawer-open {
     font-size: 11px;
   }
 }
+
+/* ==========================================================================
+   Smart Magnetic Alignment Guides & Precision Snapping (Plan Q1)
+   ========================================================================== */
+
+.smart-guide-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 28;
+  overflow: visible;
+}
+
+.smart-guide-line {
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
+}
+
+.smart-guide-line.guide-page {
+  stroke: #06b6d4; /* Vivid Cyan for Page Center & Margins */
+}
+
+.smart-guide-line.guide-object {
+  stroke: #ec4899; /* Vivid Magenta for Object-to-Object Alignment */
+}
+
+.smart-guide-line.guide-spacing {
+  stroke: #a855f7; /* Vivid Purple for Equidistant Spacing */
+}
+
+.smart-guide-badge {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+  animation: smartGuideBadgeFade 0.1s ease-out;
+}
+
+@keyframes smartGuideBadgeFade {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.smart-guide-badge rect {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+}
+
+.smart-guide-badge.badge-page rect {
+  fill: #0891b2;
+}
+
+.smart-guide-badge.badge-object rect {
+  fill: #db2777;
+}
+
+.smart-guide-badge.badge-spacing rect {
+  fill: #7e22ce;
+}
+
+.smart-guide-badge text {
+  fill: #ffffff;
+  text-anchor: middle;
+  dominant-baseline: central;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.smart-guide-spacing-tick {
+  stroke: #a855f7;
+  stroke-width: 1.5px;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.35));
+}
+

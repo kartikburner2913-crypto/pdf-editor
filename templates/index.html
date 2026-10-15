@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.9.16" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.17" />
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -2660,6 +2660,9 @@
             <button id="btnFitWidth" class="btn-icon" title="Fit to Width">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
             </button>
+            <button id="btnToggleSnapping" class="btn-icon active" title="Smart Magnetic Alignment Guides &amp; Snapping (Hold Alt to bypass)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v7a6 6 0 0 0 12 0V3"></path><line x1="4" y1="3" x2="8" y2="3"></line><line x1="16" y1="3" x2="20" y2="3"></line><line x1="4" y1="8" x2="8" y2="8"></line><line x1="16" y1="8" x2="20" y2="8"></line></svg>
+            </button>
           </div>
 
           <div class="viewer-status">
@@ -2687,6 +2690,9 @@
             
             <!-- Interactive bounding box layer for text inspection, forms, click-to-add, search highlights -->
             <div id="interactiveOverlay" class="interactive-overlay"></div>
+            
+            <!-- Smart Magnetic Alignment Guides Layer -->
+            <svg id="smartGuideOverlay" class="smart-guide-overlay" aria-hidden="true"></svg>
             
             <!-- Freehand Drawing Canvas Layer -->
             <canvas id="inkCanvas" class="ink-canvas" style="display: none;"></canvas>
@@ -3264,6 +3270,6 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=2.10.13" defer></script>
+  <script src="/static/js/app.js?v=2.10.15" defer></script>
 </body>
 </html>

@@ -207,3 +207,33 @@ def test_shape_transform_box_js_structure():
     )
     matches = emoji_pattern.findall(shape_func_code)
     assert len(matches) == 0, f"Found emojis in initLiveShapeTransformBox: {matches}"
+
+
+def test_shape_selection_preserves_tab_and_prevents_crosshair():
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "app.js")
+    with open(js_path, "r", encoding="utf-8") as f:
+        js = f.read()
+
+    # Locate selectShapeForEdit implementation
+    start_idx = js.find("function selectShapeForEdit(")
+    assert start_idx != -1, "selectShapeForEdit must be defined"
+    end_idx = js.find("window.selectShapeForEdit =", start_idx)
+    assert end_idx != -1
+    select_shape_code = js[start_idx:end_idx]
+
+    # Verify selectShapeForEdit does NOT hijack activeTab or switch sidebar tab
+    assert 'state.activeTab = "tab-shapes"' not in select_shape_code, "selectShapeForEdit must not force activeTab to tab-shapes"
+    assert 'data-tab="tab-shapes"' not in select_shape_code, "selectShapeForEdit must not click or activate shapesTabBtn"
+    assert 'window.setShapesSubMode("shapes")' not in select_shape_code, "selectShapeForEdit must not force setShapesSubMode"
+
+    # Verify deselecting activeTransformBox returns early to prevent drawing a new shape
+    deselect_check = "if (activeTransformBox && !e.target.closest(\".live-transform-box\")) {\n      cancelTransformBox(false);\n      return;\n    }"
+    assert "cancelTransformBox(false);\n      return;" in js, "Deselecting activeTransformBox must return early to avoid dragging out another shape"
+
+    # Strict emoji check
+    emoji_pattern = re.compile(
+        r'[\U0001F300-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U00002600-\U000026FF\U00002700-\U000027BF]'
+    )
+    matches = emoji_pattern.findall(select_shape_code)
+    assert len(matches) == 0, f"Found emojis in selectShapeForEdit: {matches}"
+
