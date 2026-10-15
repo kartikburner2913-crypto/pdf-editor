@@ -570,15 +570,15 @@ function prefetchPageBundle(pageNumber) {
     .catch(() => {});
 }
 
-async function applyPageBundleDirectly(pageNumber, bundle) {
+async function applyPageBundleDirectly(pageNumber, bundle, _opts = {}) {
   if (!state.docId || !bundle) return;
-  const isPageSwitch = state.currentPage !== pageNumber;
+  const isPageSwitch = _opts.forceScrollReset ? true : (state.currentPage !== pageNumber);
   state.currentPage = pageNumber;
   pageNumberInput.value = pageNumber;
   updateZoomSelectLabel();
 
   // Cache this bundle in memory
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const cacheKey = `${state.docId}_v${state.docVersion || 0}_p${pageNumber}_z${state.zoom}`;
   if (state.pageBundleCache) {
     if (state.pageBundleCache.size >= MAX_BUNDLE_CACHE_SIZE) {
       const oldestKey = state.pageBundleCache.keys().next().value;
@@ -589,6 +589,9 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
 
   const viewport = document.getElementById("canvasViewport");
   const canvasWrapper = document.getElementById("pageCanvasWrapper");
+  if (canvasWrapper) {
+    canvasWrapper.style.display = "block";
+  }
   const savedScrollTop  = viewport ? viewport.scrollTop  : 0;
   const savedScrollLeft = viewport ? viewport.scrollLeft : 0;
   const savedWinY = window.scrollY || document.documentElement.scrollTop || 0;
@@ -658,13 +661,21 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
       });
     } else {
       if (state.viewportLayout === "continuous") {
-        if (canvasWrapper) {
-          canvasWrapper.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (typeof updateContinuousSurroundingSlots === "function") {
+          updateContinuousSurroundingSlots();
         }
+        requestAnimationFrame(() => {
+          if (canvasWrapper) {
+            canvasWrapper.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        });
       } else {
         if (viewport) {
           viewport.scrollTop = 0;
           viewport.scrollLeft = 0;
+        }
+        if (canvasWrapper) {
+          canvasWrapper.scrollIntoView({ behavior: "auto", block: "start" });
         }
       }
     }
@@ -747,7 +758,7 @@ async function loadPage(pageNumber, _opts = {}) {
 
   try {
     const bundle = await fetchPageBundle(pageNumber);
-    await applyPageBundleDirectly(pageNumber, bundle);
+    await applyPageBundleDirectly(pageNumber, bundle, _opts);
   } catch (err) {
     showToast(err.message, "error");
     setLoading(false);
@@ -2330,13 +2341,21 @@ function initContinuousDocumentFlow() {
   if (!state.docId || state.totalPages <= 0) return;
   const beforeContainer = getContinuousPagesContainer();
   const afterContainer = getContinuousAfterContainer();
+  const wrapper = document.getElementById("pageCanvasWrapper");
 
   if (state.viewportLayout !== "continuous") {
-    if (beforeContainer) beforeContainer.style.display = "none";
-    if (afterContainer) afterContainer.style.display = "none";
+    if (beforeContainer) {
+      beforeContainer.style.display = "none";
+      beforeContainer.innerHTML = "";
+    }
+    if (afterContainer) {
+      afterContainer.style.display = "none";
+      afterContainer.innerHTML = "";
+    }
     return;
   }
 
+  if (wrapper) wrapper.style.display = "block";
   if (beforeContainer) beforeContainer.style.display = "flex";
   if (afterContainer) afterContainer.style.display = "flex";
   updateContinuousSurroundingSlots();
@@ -2354,17 +2373,24 @@ function updateContinuousSurroundingSlots() {
   const afterContainer = getContinuousAfterContainer();
 
   if (state.viewportLayout !== "continuous") {
-    if (beforeContainer) beforeContainer.style.display = "none";
-    if (afterContainer) afterContainer.style.display = "none";
-  } else {
     if (beforeContainer) {
-      beforeContainer.style.display = "flex";
+      beforeContainer.style.display = "none";
       beforeContainer.innerHTML = "";
     }
     if (afterContainer) {
-      afterContainer.style.display = "flex";
+      afterContainer.style.display = "none";
       afterContainer.innerHTML = "";
     }
+    return;
+  }
+
+  if (beforeContainer) {
+    beforeContainer.style.display = "flex";
+    beforeContainer.innerHTML = "";
+  }
+  if (afterContainer) {
+    afterContainer.style.display = "flex";
+    afterContainer.innerHTML = "";
   }
 
   if (!state.continuousPageSlots) state.continuousPageSlots = new Map();
@@ -2376,12 +2402,10 @@ function updateContinuousSurroundingSlots() {
     const slotInfo = createPageSlotElement(p);
     state.continuousPageSlots.set(p, slotInfo);
 
-    if (state.viewportLayout === "continuous") {
-      if (p < cur && beforeContainer) {
-        beforeContainer.appendChild(slotInfo.element);
-      } else if (p > cur && afterContainer) {
-        afterContainer.appendChild(slotInfo.element);
-      }
+    if (p < cur && beforeContainer) {
+      beforeContainer.appendChild(slotInfo.element);
+    } else if (p > cur && afterContainer) {
+      afterContainer.appendChild(slotInfo.element);
     }
   }
 }
@@ -2403,10 +2427,6 @@ function createPageSlotElement(pageNumber) {
   slot.style.minHeight = `${hPx}px`;
   slot.style.flexShrink = "0";
 
-  const badge = document.createElement("span");
-  badge.className = "page-slot-badge";
-  badge.textContent = `Page ${pageNumber} (Click to switch)`;
-
   const content = document.createElement("div");
   content.className = "page-slot-content";
   content.style.width = "100%";
@@ -2427,7 +2447,6 @@ function createPageSlotElement(pageNumber) {
   }
 
   content.appendChild(img);
-  slot.appendChild(badge);
   slot.appendChild(content);
 
   slot.addEventListener("click", () => {
@@ -2485,12 +2504,12 @@ function mountPageImage(pageNumber) {
   if (!slotInfo || !slotInfo.content || pageNumber === state.currentPage) return;
   const img = slotInfo.content.querySelector(".page-slot-image");
   if (img) {
-    const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+    const cacheKey = `${state.docId}_v${state.docVersion || 0}_p${pageNumber}_z${state.zoom}`;
     const cachedBundle = state.pageBundleCache?.get(cacheKey);
     if (cachedBundle && cachedBundle.image_data_url) {
       img.src = cachedBundle.image_data_url;
     } else {
-      img.src = `/api/document/${state.docId}/page/${pageNumber}/image?zoom=${state.zoom}&v=${state.docVersion || 1}`;
+      img.src = `/api/document/${state.docId}/page/${pageNumber}/image?zoom=${state.zoom}&v=${state.docVersion || 0}&t=${state.cacheBustTs || ''}`;
     }
   }
 }
@@ -2499,14 +2518,17 @@ function unmountPageImage(pageNumber) {
   // Safe architecture: we don't destroy DOM images to prevent flickering
 }
 
-function scrollToPageSlot(pageNumber, smooth = true) {
-  if (state.currentPage !== pageNumber) {
-    loadPage(pageNumber);
-  }
-  const wrapper = document.getElementById("pageCanvasWrapper");
-  if (wrapper) {
-    wrapper.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
-  }
+async function scrollToPageSlot(pageNumber, smooth = true) {
+  state.currentPage = pageNumber;
+  if (pageNumberInput) pageNumberInput.value = pageNumber;
+  syncActiveThumbnail(pageNumber);
+  await loadPage(pageNumber, { forceScrollReset: true });
+  requestAnimationFrame(() => {
+    const wrapper = document.getElementById("pageCanvasWrapper");
+    if (wrapper) {
+      wrapper.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    }
+  });
 }
 
 function togglePageLayoutMode(forcedMode = null) {
@@ -2523,13 +2545,31 @@ function togglePageLayoutMode(forcedMode = null) {
 
   const beforeContainer = getContinuousPagesContainer();
   const afterContainer = getContinuousAfterContainer();
+  const viewport = document.getElementById("canvasViewport");
+  const wrapper = document.getElementById("pageCanvasWrapper");
 
   if (newMode === "single") {
-    if (beforeContainer) beforeContainer.style.display = "none";
-    if (afterContainer) afterContainer.style.display = "none";
+    if (beforeContainer) {
+      beforeContainer.style.display = "none";
+      beforeContainer.innerHTML = "";
+    }
+    if (afterContainer) {
+      afterContainer.style.display = "none";
+      afterContainer.innerHTML = "";
+    }
+    if (wrapper) {
+      wrapper.style.display = "block";
+    }
+    if (viewport) {
+      viewport.scrollTop = 0;
+      viewport.scrollLeft = 0;
+    }
     showToast("Single page view: ON", "info");
-    loadPage(state.currentPage);
+    loadPage(state.currentPage, { forceScrollReset: true });
   } else {
+    if (wrapper) {
+      wrapper.style.display = "block";
+    }
     showToast("Continuous multi-page view: ON", "info");
     initContinuousDocumentFlow();
   }
@@ -8582,12 +8622,6 @@ async function movePageRelative(pageNumber, delta) {
   const itemToMove = order.splice(pageNumber - 1, 1)[0];
   order.splice(targetPos - 1, 0, itemToMove);
 
-  if (state.currentPage === pageNumber) {
-    state.currentPage = targetPos;
-  } else if (state.currentPage === targetPos) {
-    state.currentPage = pageNumber;
-  }
-
   showToast(`Moving Page ${pageNumber} to Page ${targetPos}...`, "info");
   await applyPageOrder(order);
 }
@@ -8619,8 +8653,38 @@ function populateThumbnails() {
     wrapper.draggable = true;
     if (i === state.currentPage) wrapper.classList.add("active");
 
-    wrapper.addEventListener("click", () => {
-      loadPage(i);
+    let clickStartX = 0;
+    let clickStartY = 0;
+    let isDragging = false;
+
+    wrapper.addEventListener("mousedown", (e) => {
+      clickStartX = e.clientX;
+      clickStartY = e.clientY;
+      isDragging = false;
+    });
+
+    wrapper.addEventListener("mouseup", (e) => {
+      if (e.button === 0 && !isDragging) {
+        if (e.target.closest(".thumb-action-btn")) return;
+        const dx = Math.abs(e.clientX - clickStartX);
+        const dy = Math.abs(e.clientY - clickStartY);
+        if (dx < 6 && dy < 6) {
+          if (state.viewportLayout === "continuous" && typeof scrollToPageSlot === "function") {
+            scrollToPageSlot(i);
+          } else {
+            loadPage(i, { forceScrollReset: true });
+          }
+        }
+      }
+    });
+
+    wrapper.addEventListener("click", (e) => {
+      if (e.target.closest(".thumb-action-btn")) return;
+      if (state.viewportLayout === "continuous" && typeof scrollToPageSlot === "function") {
+        scrollToPageSlot(i);
+      } else {
+        loadPage(i, { forceScrollReset: true });
+      }
     });
 
     // Right-click context menu
@@ -8631,6 +8695,7 @@ function populateThumbnails() {
 
     // Drag and Drop reordering
     wrapper.addEventListener("dragstart", (e) => {
+      isDragging = true;
       draggedItem = wrapper;
       wrapper.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
@@ -8660,15 +8725,12 @@ function populateThumbnails() {
       const itemToMove = order.splice(fromPage - 1, 1)[0];
       order.splice(toPage - 1, 0, itemToMove);
 
-      if (state.currentPage === fromPage) {
-        state.currentPage = toPage;
-      }
-
       showToast(`Moving Page ${fromPage} to Page ${toPage}...`, "info");
       await applyPageOrder(order);
     });
 
     wrapper.addEventListener("dragend", () => {
+      isDragging = false;
       wrapper.classList.remove("dragging");
       document.querySelectorAll(".thumbnail-wrapper").forEach(w => w.classList.remove("drag-over"));
     });
@@ -8676,6 +8738,7 @@ function populateThumbnails() {
     const img = document.createElement("img");
     img.className = "thumbnail-image";
     img.loading = "lazy";
+    img.draggable = false;
     const thumbUrl = `/api/document/${state.docId}/page/${i}/image?zoom=0.18&format=jpeg&v=${state.docVersion || 0}&t=${state.cacheBustTs || ''}`;
 
     if (thumbnailObserver) {
@@ -9220,7 +9283,7 @@ async function applyPageOrder(order) {
     if (!res.ok) throw new Error("Failed to reorder pages");
     const data = await res.json();
     state.cacheBustTs = Date.now();
-    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 1) + 1;
+    state.docVersion = data.version !== undefined ? data.version : (state.docVersion || 0) + 1;
     if (state.pageBundleCache) {
       state.pageBundleCache.clear();
     }
@@ -9234,7 +9297,8 @@ async function applyPageOrder(order) {
     updatePageOrderInput();
     populateThumbnails();
     showToast("Page order applied!", "success");
-    await loadPage(state.currentPage);
+    await loadPage(state.currentPage, { forceScrollReset: true });
+    syncActiveThumbnail(state.currentPage);
   } catch (err) {
     showToast(err.message, "error");
   } finally {

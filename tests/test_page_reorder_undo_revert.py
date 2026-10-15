@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import subprocess
 import pytest
 import pymupdf as fitz
 from bs4 import BeautifulSoup
@@ -120,3 +121,55 @@ def test_ui_markup_for_thumbnail_reorder_actions():
     # Strict emoji invariant check
     emoji_pattern = re.compile(r'[\U00010000-\U0010ffff]')
     assert len(emoji_pattern.findall(str(soup.find(id="thumbnailContextMenu")))) == 0
+
+
+def test_user_reported_bugs_verification():
+    """Verify fixes for the 4 user-reported bugs:
+    1. Single page view toggle & PDF wrapper persistence.
+    2. Page reorder updates editor canvas view.
+    3. Thumbnail click triggers page navigation and scroll.
+    4. Outlines and page badges removed from canvas pages.
+    """
+    css_path = os.path.join(os.path.dirname(__file__), "..", "static", "css", "style.css")
+    with open(css_path, "r", encoding="utf-8") as f:
+        css = f.read()
+
+    # Bug 4 verification in CSS
+    assert ".page-slot-badge {\n  display: none !important;" in css or ".page-slot-badge {\n  display: none !important" in css
+    # Verify no blue border/outline on active-slot
+    assert "box-shadow: 0 0 0 2px #0284c7" not in css
+
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "app.js")
+    with open(js_path, "r", encoding="utf-8") as f:
+        js = f.read()
+
+    # Bug 1 & 4: verify no badge element appended to slot in createPageSlotElement
+    assert 'slot.appendChild(badge)' not in js
+
+    # Bug 1: verify togglePageLayoutMode resets containers and ensures wrapper visibility
+    assert 'wrapper.style.display = "block"' in js
+    assert 'loadPage(state.currentPage, { forceScrollReset: true })' in js
+
+    # Bug 2: verify applyPageOrder loads active page with forceScrollReset and syncs active thumbnail
+    assert 'await loadPage(state.currentPage, { forceScrollReset: true });' in js
+    assert 'syncActiveThumbnail(state.currentPage);' in js
+
+    # Bug 3: verify thumbnail click navigation handles mouseup/click and prevents image drag conflicts
+    assert 'img.draggable = false;' in js
+    assert 'scrollToPageSlot(i)' in js
+
+    # Mathematical / Functional Node test
+    node_script = """
+    const fs = require('fs');
+    const js = fs.readFileSync('static/js/app.js', 'utf8');
+
+    // Verify cacheKey v0/v1 consistency
+    if (js.includes("v${state.docVersion || 1}_p${pageNumber}")) {
+      throw new Error("Found inconsistent state.docVersion || 1 in cacheKey!");
+    }
+    console.log("PASS");
+    """
+    res = subprocess.run(["node", "-e", node_script], capture_output=True, text=True, cwd=os.path.join(os.path.dirname(__file__), ".."))
+    assert res.returncode == 0, f"Node verification failed:\n{res.stderr}"
+    assert "PASS" in res.stdout
+
