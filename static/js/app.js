@@ -422,6 +422,9 @@ const cmdResultsList = document.getElementById("cmdResultsList");
 // ==========================================================================
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Purge any legacy experimental multi-page elements if loaded from older browser cache
+  document.querySelectorAll("#continuousPagesContainer, #continuousAfterContainer, #btnTogglePageLayout, #btnToggleHandTool, .continuous-pages-container, .page-slot").forEach(el => el.remove());
+
   initTheme();
   setupTabs();
   setupUpload();
@@ -674,6 +677,9 @@ async function handlePdfUpload(file, password = null) {
       state.pageWidthPt = firstPage.width;
       state.pageHeightPt = firstPage.height;
     }
+
+    // Purge any legacy continuous containers from previous sessions
+    document.querySelectorAll("#continuousPagesContainer, #continuousAfterContainer, .continuous-pages-container, .page-slot").forEach(el => el.remove());
 
     uploadSection.style.display = "none";
     workspaceSection.style.display = "flex";
