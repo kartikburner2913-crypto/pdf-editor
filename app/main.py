@@ -169,7 +169,7 @@ def save_and_bundle(
     doc_id: str,
     new_pdf: bytes,
     page_num: int = 1,
-    zoom: float = 1.5,
+    zoom: Optional[float] = None,
     message: str = "Success",
     extra: Optional[Dict[str, Any]] = None,
     include_info: bool = True,
@@ -179,6 +179,15 @@ def save_and_bundle(
     doc_entry = DOC_STORE.get(doc_id)
     can_undo = (doc_entry["current_version"] > 0) if doc_entry else True
     can_redo = (doc_entry["current_version"] < doc_entry["max_version"]) if doc_entry else False
+
+    # Track effective zoom: explicit param > doc_entry.last_zoom > 1.5
+    eff_zoom = 1.5
+    if zoom is not None and zoom > 0:
+        eff_zoom = float(zoom)
+        if doc_entry:
+            doc_entry["last_zoom"] = eff_zoom
+    elif doc_entry and doc_entry.get("last_zoom"):
+        eff_zoom = float(doc_entry["last_zoom"])
 
     # Infer action_type if not explicitly provided
     if not action_type:
@@ -238,7 +247,7 @@ def save_and_bundle(
             
     if page_num and page_num > 0:
         try:
-            bundle = PDFEngine.get_page_bundle(new_pdf, page_num, zoom=zoom)
+            bundle = PDFEngine.get_page_bundle(new_pdf, page_num, zoom=eff_zoom)
             bundle["version"] = next_v
             res["page_bundle"] = bundle
         except Exception:
@@ -736,6 +745,9 @@ def get_page_bundle(doc_id: str, page_number: int, zoom: float = Query(1.5, ge=0
     """
     doc = get_doc(doc_id)
     try:
+        doc_entry = DOC_STORE.get(doc_id)
+        if doc_entry:
+            doc_entry["last_zoom"] = zoom
         bundle = PDFEngine.get_page_bundle(doc["current_bytes"], page_number, zoom=zoom)
         bundle["version"] = doc.get("current_version", 1)
         return bundle
@@ -785,7 +797,7 @@ async def get_page_text_blocks(doc_id: str, page_number: int):
 
 
 @app.post("/api/document/{doc_id}/edit-text")
-async def edit_text(doc_id: str, req: EditTextRequest):
+async def edit_text(doc_id: str, req: EditTextRequest, zoom: Optional[float] = Query(None)):
     """
     Search & replace or edit text blocks in-place.
     Supports redaction + re-inserting new text.
@@ -795,27 +807,27 @@ async def edit_text(doc_id: str, req: EditTextRequest):
         edits_data = [item.model_dump() for item in req.edits]
         new_pdf = PDFEngine.edit_text(doc["current_bytes"], edits_data)
         target_page = req.edits[0].page if req.edits and req.edits[0].page > 0 else 1
-        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Text edited successfully.")
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, zoom=zoom, message="Text edited successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error editing text: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/add-text")
-async def add_text(doc_id: str, req: AddTextRequest):
+async def add_text(doc_id: str, req: AddTextRequest, zoom: Optional[float] = Query(None)):
     """Add new text annotations at specific coordinates."""
     doc = get_doc(doc_id)
     try:
         annotations_data = [item.model_dump() for item in req.annotations]
         new_pdf = PDFEngine.add_text_annotations(doc["current_bytes"], annotations_data)
         target_page = req.annotations[0].page if req.annotations else 1
-        return save_and_bundle(doc_id, new_pdf, page_num=target_page, message="Text added successfully.")
+        return save_and_bundle(doc_id, new_pdf, page_num=target_page, zoom=zoom, message="Text added successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding text: {str(e)}")
 
 
 @app.post("/api/document/{doc_id}/move-text")
 @app.post("/api/document/{doc_id}/move-text-block")
-async def move_text_block(doc_id: str, req: MoveTextBlockRequest):
+async def move_text_block(doc_id: str, req: MoveTextBlockRequest, zoom: Optional[float] = Query(None)):
     """Move a text block on the PDF by redacting old location and inserting at new location."""
     doc = get_doc(doc_id)
     try:
@@ -830,7 +842,7 @@ async def move_text_block(doc_id: str, req: MoveTextBlockRequest):
             color=req.color,
             bg_color=req.bg_color
         )
-        return save_and_bundle(doc_id, new_pdf, page_num=req.page, message="Text block moved successfully.")
+        return save_and_bundle(doc_id, new_pdf, page_num=req.page, zoom=zoom, message="Text block moved successfully.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error moving text block: {str(e)}")
 

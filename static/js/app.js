@@ -1210,7 +1210,8 @@ async function applyPageBundleDirectly(pageNumber, bundle) {
   updateZoomSelectLabel();
 
   // Cache this bundle in memory
-  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${state.zoom}`;
+  const renderedZoom = bundle.zoom !== undefined ? bundle.zoom : state.zoom;
+  const cacheKey = `${state.docId}_v${state.docVersion || 1}_p${pageNumber}_z${renderedZoom}`;
   if (state.pageBundleCache) {
     if (state.pageBundleCache.size >= MAX_BUNDLE_CACHE_SIZE) {
       const oldestKey = state.pageBundleCache.keys().next().value;
@@ -1342,7 +1343,12 @@ async function applyMutationResponse(data, targetPage = state.currentPage) {
   }
 
   if (data && data.page_bundle && targetPage === state.currentPage) {
-    await applyPageBundleDirectly(targetPage, data.page_bundle);
+    const bundleZoom = data.page_bundle.zoom;
+    if (bundleZoom !== undefined && Math.abs(bundleZoom - state.zoom) > 0.01) {
+      await loadPage(targetPage || state.currentPage);
+    } else {
+      await applyPageBundleDirectly(targetPage, data.page_bundle);
+    }
   } else {
     await loadPage(targetPage || state.currentPage);
   }
@@ -1573,7 +1579,7 @@ function renderBlockHighlights() {
 
       queueOptimisticMutation(
         async () => {
-          const res = await fetch(`/api/document/${state.docId}/edit-text`, {
+          const res = await fetch(`/api/document/${state.docId}/edit-text?zoom=${state.zoom}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -4405,7 +4411,7 @@ function initLiveTextTransformBox(options = {}) {
       if (mode === "add") {
         const hasBox = document.getElementById("newTextWithBox")?.checked;
         const bgCol = hasBox ? hexToRgb(document.getElementById("newTextBgColor")?.value || "#ffffff") : null;
-        const res = await fetch(`/api/document/${state.docId}/add-text`, {
+        const res = await fetch(`/api/document/${state.docId}/add-text?zoom=${state.zoom}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -4450,7 +4456,7 @@ function initLiveTextTransformBox(options = {}) {
 
         const origBbox = options.origBlock ? options.origBlock.bbox : newBbox;
         const targetNewBbox = (hasMoved || hasResized) ? newBbox : null;
-        const res = await fetch(`/api/document/${state.docId}/edit-text`, {
+        const res = await fetch(`/api/document/${state.docId}/edit-text?zoom=${state.zoom}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -4510,7 +4516,7 @@ function initLiveTextTransformBox(options = {}) {
         cancelTransformBox();
         setLoading(true, "Deleting text block...");
         try {
-          const res = await fetch(`/api/document/${state.docId}/edit-text`, {
+          const res = await fetch(`/api/document/${state.docId}/edit-text?zoom=${state.zoom}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -6039,7 +6045,7 @@ function setupToolActions() {
     };
 
     try {
-      const res = await fetch(`/api/document/${state.docId}/add-text`, {
+      const res = await fetch(`/api/document/${state.docId}/add-text?zoom=${state.zoom}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -9468,7 +9474,7 @@ function setupKeyboardShortcuts() {
 
 async function submitEditText(payload) {
   try {
-    const res = await fetch(`/api/document/${state.docId}/edit-text`, {
+    const res = await fetch(`/api/document/${state.docId}/edit-text?zoom=${state.zoom}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)

@@ -242,6 +242,7 @@ class PDFEngine:
                 "width": width_pt,
                 "height": height_pt,
                 "rotation": page.rotation,
+                "zoom": round(zoom, 4),
                 "image_data_url": image_data_url,
                 "text_blocks": blocks_result,
                 "annotations": annots_list,
